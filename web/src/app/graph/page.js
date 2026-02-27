@@ -10,6 +10,8 @@ import {
     useEdgesState,
     MarkerType,
     Panel,
+    Handle,
+    Position,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useAuth } from '../../context/AuthContext';
@@ -72,6 +74,10 @@ function NoteNode({ data }) {
                 <span>{pct}% decay</span>
                 <span>⚡{data.importance_score.toFixed(0)} · 🔗{data.link_count}</span>
             </div>
+
+            {/* Invisible handles for edge routing */}
+            <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
+            <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
         </div>
     );
 }

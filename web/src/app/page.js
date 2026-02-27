@@ -287,6 +287,32 @@ export default function Home() {
   };
   const removeTag = (tag, setTags) => setTags(prev => prev.filter(t => t !== tag));
 
+  /* ── AI Magic Tagging ── */
+  const [generatingTags, setGeneratingTags] = useState(false);
+  const generateMagicTags = async (isEditMode) => {
+    const t = isEditMode ? editTitle : newTitle;
+    const c = isEditMode ? editContent : newContent;
+    if (!t.trim() && !c.trim()) {
+      alert("Please enter a title or content first!");
+      return;
+    }
+    setGeneratingTags(true);
+    try {
+      const res = await api.post('/ai/magic-tags', { title: t, content: c });
+      const generated = res.data || [];
+      const setTags = isEditMode ? setEditTags : setNewTags;
+      setTags(prev => {
+        const unique = new Set([...prev, ...generated]);
+        return Array.from(unique);
+      });
+    } catch (err) {
+      console.error(err);
+      alert('Failed to generate tags. Quota might be exceeded!');
+    } finally {
+      setGeneratingTags(false);
+    }
+  };
+
   /* ── Display list ── */
   const displayNotes = searchResults !== null ? searchResults : notes;
 
@@ -390,7 +416,19 @@ export default function Home() {
             />
             {/* Tags */}
             <div style={{ marginTop: 12, marginBottom: 16 }}>
-              <div style={s.tagFieldLabel}>Tags</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={s.tagFieldLabel}>Tags</div>
+                <button
+                  type="button"
+                  onClick={() => generateMagicTags(false)}
+                  disabled={generatingTags}
+                  className="btn btn-ghost"
+                  style={{ fontSize: 12, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px' }}
+                >
+                  {generatingTags ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <SparkIcon />}
+                  AI Magic Tag
+                </button>
+              </div>
               <div style={s.tagRow}>
                 {newTags.map(t => <TagChip key={t} tag={t} onRemove={tag => removeTag(tag, setNewTags)} />)}
                 <input
@@ -454,7 +492,19 @@ export default function Home() {
 
             {/* Tags */}
             <div style={{ marginBottom: 20 }}>
-              <div style={s.tagFieldLabel}>Tags</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={s.tagFieldLabel}>Tags</div>
+                <button
+                  type="button"
+                  onClick={() => generateMagicTags(true)}
+                  disabled={generatingTags}
+                  className="btn btn-ghost"
+                  style={{ fontSize: 12, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px' }}
+                >
+                  {generatingTags ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <SparkIcon />}
+                  AI Magic Tag
+                </button>
+              </div>
               <div style={s.tagRow}>
                 {editTags.map(t => <TagChip key={t} tag={t} onRemove={tag => removeTag(tag, setEditTags)} />)}
                 <input
