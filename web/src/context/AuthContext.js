@@ -46,9 +46,9 @@ export const AuthProvider = ({ children }) => {
         router.push('/login');
     };
 
-    const register = async (email, password) => {
+    const register = async (name, email, password) => {
         try {
-            await api.post('/auth/register', { email, password });
+            await api.post('/auth/register', { name, email, password });
             // Optionally auto-login
             router.push('/login');
         } catch (error) {
@@ -56,6 +56,7 @@ export const AuthProvider = ({ children }) => {
             throw error;
         }
     };
+
 
     return (
         <AuthContext.Provider value={{ userToken, login, logout, register, loading }}>

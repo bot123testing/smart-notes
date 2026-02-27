@@ -38,6 +38,8 @@ async def get_activity_stats(current_user: User = Depends(get_current_user)):
             "edit_count":   {"$sum": {"$cond": [{"$eq": ["$_id.action_type", "edit"]},   "$count", 0]}},
             "create_count": {"$sum": {"$cond": [{"$eq": ["$_id.action_type", "create"]}, "$count", 0]}},
             "delete_count": {"$sum": {"$cond": [{"$eq": ["$_id.action_type", "delete"]}, "$count", 0]}},
+            "link_count":   {"$sum": {"$cond": [{"$eq": ["$_id.action_type", "link"]},   "$count", 0]}},
+            "unlink_count": {"$sum": {"$cond": [{"$eq": ["$_id.action_type", "unlink"]}, "$count", 0]}},
             "last_accessed": {"$max": "$last_ts"},
         }},
 
@@ -72,6 +74,8 @@ async def get_activity_stats(current_user: User = Depends(get_current_user)):
             "edit_count":   s.get("edit_count", 0),
             "create_count": s.get("create_count", 0),
             "delete_count": s.get("delete_count", 0),
+            "link_count":   s.get("link_count", 0),
+            "unlink_count": s.get("unlink_count", 0),
         }
         total = sum(counts.values())
         total_events += total

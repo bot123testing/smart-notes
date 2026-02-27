@@ -9,6 +9,8 @@ class ActionType(str, Enum):
     edit = "edit"
     create = "create"
     delete = "delete"
+    link = "link"
+    unlink = "unlink"
 
 
 class ActivityEvent(BaseModel):
@@ -27,6 +29,8 @@ class NoteActivityStats(BaseModel):
     edit_count: int = 0
     create_count: int = 0
     delete_count: int = 0
+    link_count: int = 0
+    unlink_count: int = 0
     total: int = 0
     last_accessed: Optional[datetime] = None
 

@@ -1,14 +1,20 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     View, Text, TextInput, StyleSheet, Alert, ScrollView,
     TouchableOpacity, Modal, FlatList, ActivityIndicator,
-    SafeAreaView, StatusBar,
+    SafeAreaView, StatusBar, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import Animated, { FadeIn, FadeInDown, SlideInDown, Layout } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+import { ArrowLeft, Link2, Sparkles, Check, CheckCircle2, ChevronRight, X, Plus, Network, Tag, Calendar, Search } from 'lucide-react-native';
 import api from '../services/api';
+import { useTheme } from '../hooks/useTheme';
+import { colors, typography, spacing, layout, shadows } from '../theme/theme';
 
 // ─── Link Note Modal ──────────────────────────────────────────────────────────
-
 const LinkNoteModal = ({ visible, currentNoteId, alreadyLinkedIds, onClose, onLink }) => {
+    const { theme } = useTheme();
+
     const [allNotes, setAllNotes] = useState([]);
     const [selected, setSelected] = useState(new Set());
     const [loading, setLoading] = useState(false);
@@ -25,7 +31,6 @@ const LinkNoteModal = ({ visible, currentNoteId, alreadyLinkedIds, onClose, onLi
         setLoading(true);
         try {
             const res = await api.get('/notes/');
-            // Exclude the current note from the list
             setAllNotes(res.data.filter(n => n.id !== currentNoteId));
         } catch (e) {
             Alert.alert('Error', 'Could not load notes');
@@ -46,11 +51,10 @@ const LinkNoteModal = ({ visible, currentNoteId, alreadyLinkedIds, onClose, onLi
         if (selected.size === 0) { onClose(); return; }
         setLinking(true);
         try {
-            // Link each selected note one by one
             for (const targetId of selected) {
                 await api.post(`/notes/${currentNoteId}/link`, { target_note_id: targetId });
             }
-            onLink(); // tell parent to refresh
+            onLink();
             onClose();
         } catch (e) {
             Alert.alert('Error', 'Could not link notes');
@@ -67,27 +71,35 @@ const LinkNoteModal = ({ visible, currentNoteId, alreadyLinkedIds, onClose, onLi
             <TouchableOpacity
                 style={[
                     styles.modalRow,
-                    isSelected && styles.modalRowSelected,
-                    isLinked && styles.modalRowLinked,
+                    { borderBottomColor: theme.border },
+                    isSelected && { backgroundColor: theme.primaryLight + '40' },
+                    isLinked && { opacity: 0.5 },
                 ]}
                 onPress={() => !isLinked && toggleSelect(item.id)}
                 disabled={isLinked}
-                activeOpacity={isLinked ? 1 : 0.7}
+                activeOpacity={0.7}
             >
                 <View style={styles.modalRowLeft}>
-                    <Text style={[styles.modalRowTitle, isLinked && styles.modalRowTitleLinked]}>
+                    <Text style={[styles.modalRowTitle, { color: theme.text }]} numberOfLines={1}>
                         {item.title}
                     </Text>
                     {item.content ? (
-                        <Text numberOfLines={1} style={styles.modalRowPreview}>{item.content}</Text>
+                        <Text numberOfLines={1} style={[styles.modalRowPreview, { color: theme.textTertiary }]}>
+                            {item.content}
+                        </Text>
                     ) : null}
                 </View>
-                <View style={[styles.checkbox, isSelected && styles.checkboxSelected, isLinked && styles.checkboxLinked]}>
-                    {isLinked
-                        ? <Text style={styles.checkMark}>✓</Text>
-                        : isSelected
-                            ? <Text style={styles.checkMark}>✓</Text>
-                            : null}
+
+                <View style={styles.modalCheckboxArea}>
+                    {isLinked ? (
+                        <CheckCircle2 size={20} color={theme.success} />
+                    ) : isSelected ? (
+                        <View style={[styles.checkbox, { backgroundColor: theme.primary, borderColor: theme.primary }]}>
+                            <Check size={14} color="#FFF" />
+                        </View>
+                    ) : (
+                        <View style={[styles.checkbox, { borderColor: theme.border }]} />
+                    )}
                 </View>
             </TouchableOpacity>
         );
@@ -95,81 +107,125 @@ const LinkNoteModal = ({ visible, currentNoteId, alreadyLinkedIds, onClose, onLi
 
     return (
         <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-            <SafeAreaView style={styles.modalContainer}>
-                <StatusBar barStyle="dark-content" />
-
+            <View style={[styles.modalContainer, { backgroundColor: theme.background }]}>
                 {/* Header */}
-                <View style={styles.modalHeader}>
+                <View style={[styles.modalHeader, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
                     <TouchableOpacity onPress={onClose} style={styles.modalCancelBtn}>
-                        <Text style={styles.modalCancelText}>Cancel</Text>
+                        <Text style={[styles.modalCancelText, { color: theme.textSecondary }]}>Cancel</Text>
                     </TouchableOpacity>
-                    <Text style={styles.modalTitle}>Link Notes</Text>
+                    <Text style={[styles.modalTitle, { color: theme.text }]}>Link Notes</Text>
                     <TouchableOpacity
                         onPress={handleConfirm}
-                        style={[styles.modalDoneBtn, (linking || selected.size === 0) && styles.modalDoneBtnDisabled]}
-                        disabled={linking}
+                        style={[
+                            styles.modalDoneBtn,
+                            { backgroundColor: theme.primary },
+                            (linking || selected.size === 0) && { opacity: 0.5 }
+                        ]}
+                        disabled={linking || selected.size === 0}
                     >
-                        {linking
-                            ? <ActivityIndicator size="small" color="#fff" />
-                            : <Text style={styles.modalDoneText}>
+                        {linking ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                            <Text style={styles.modalDoneText}>
                                 Link{selected.size > 0 ? ` (${selected.size})` : ''}
                             </Text>
-                        }
+                        )}
                     </TouchableOpacity>
                 </View>
 
-                <Text style={styles.modalSubtitle}>
-                    Select notes to link. Already linked notes are shown greyed out.
-                </Text>
-
                 {loading ? (
-                    <ActivityIndicator size="large" color="#007bff" style={{ marginTop: 40 }} />
+                    <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: spacing.xxl }} />
                 ) : allNotes.length === 0 ? (
-                    <Text style={styles.modalEmpty}>No other notes to link.</Text>
+                    <Text style={[styles.modalEmpty, { color: theme.textTertiary }]}>No other notes to link.</Text>
                 ) : (
                     <FlatList
                         data={allNotes}
                         keyExtractor={item => item.id}
                         renderItem={renderNote}
-                        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
-                        ItemSeparatorComponent={() => <View style={styles.separator} />}
+                        contentContainerStyle={{ paddingBottom: spacing.xxl }}
                     />
                 )}
-            </SafeAreaView>
+            </View>
         </Modal>
     );
 };
 
 // ─── Linked Note Chip ─────────────────────────────────────────────────────────
-
-const LinkedChip = ({ linkedNote, onPress, onUnlink }) => (
-    <TouchableOpacity style={styles.chip} onPress={onPress} onLongPress={onUnlink} activeOpacity={0.75}>
-        <Text style={styles.chipIcon}>🔗</Text>
-        <Text style={styles.chipText} numberOfLines={1}>{linkedNote.title}</Text>
-        <TouchableOpacity onPress={onUnlink} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={styles.chipClose}>×</Text>
+const LinkedChip = ({ linkedNote, onPress, onUnlink, theme }) => (
+    <Animated.View layout={Layout.springify()}>
+        <TouchableOpacity
+            style={[styles.chip, { backgroundColor: theme.surfaceHighlight, borderColor: theme.border }]}
+            onPress={onPress}
+            onLongPress={onUnlink}
+            activeOpacity={0.7}
+        >
+            <Link2 size={14} color={theme.primary} />
+            <Text style={[styles.chipText, { color: theme.text }]} numberOfLines={1}>
+                {linkedNote.title}
+            </Text>
+            <TouchableOpacity onPress={onUnlink} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <X size={14} color={theme.textTertiary} />
+            </TouchableOpacity>
         </TouchableOpacity>
-    </TouchableOpacity>
+    </Animated.View>
 );
 
 // ─── EditNoteScreen ───────────────────────────────────────────────────────────
-
 const EditNoteScreen = ({ route, navigation }) => {
     const { note: initialNote } = route.params;
+    const { theme, isDark } = useTheme();
 
     const [title, setTitle] = useState(initialNote.title);
     const [content, setContent] = useState(initialNote.content);
+    const [tags, setTags] = useState(initialNote.tags || []);
+    const [tagInput, setTagInput] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [generatingTags, setGeneratingTags] = useState(false);
     const [linkedNotes, setLinkedNotes] = useState(initialNote.linked_notes || []);
     const [linkedNoteIds, setLinkedNoteIds] = useState(initialNote.linked_note_ids || []);
     const [suggestedLinks, setSuggestedLinks] = useState(initialNote.suggested_links || []);
+    const [similarNotes, setSimilarNotes] = useState([]);
     const [modalVisible, setModalVisible] = useState(false);
-    const [saving, setSaving] = useState(false);
-    const [linkingId, setLinkingId] = useState(null); // tracks which suggestion is being confirmed
+    const [linkingId, setLinkingId] = useState(null);
 
-    // Update header title
+    const contentInputRef = useRef(null);
+    const tagInputRef = useRef(null);
+
+    // Custom Header
     useEffect(() => {
-        navigation.setOptions({ title: title || 'Edit Note' });
-    }, [title]);
+        navigation.setOptions({
+            headerShown: true,
+            headerTitle: '',
+            headerStyle: { backgroundColor: theme.background },
+            headerShadowVisible: false,
+            headerLeft: () => (
+                <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: spacing.sm, marginLeft: -spacing.sm }}>
+                    <ArrowLeft size={24} color={theme.text} />
+                </TouchableOpacity>
+            ),
+            headerRight: () => (
+                <TouchableOpacity
+                    style={[
+                        styles.headerSaveBtn,
+                        { backgroundColor: title.trim() ? theme.primary : theme.border }
+                    ]}
+                    onPress={handleSave}
+                    disabled={saving || !title.trim()}
+                >
+                    {saving ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                        <Text style={[
+                            styles.headerSaveText,
+                            { color: title.trim() ? '#fff' : theme.textTertiary }
+                        ]}>
+                            Save
+                        </Text>
+                    )}
+                </TouchableOpacity>
+            ),
+        });
+    }, [navigation, title, content, tags, tagInput, linkedNoteIds, saving, theme]);
 
     const refreshNote = useCallback(async () => {
         try {
@@ -177,7 +233,6 @@ const EditNoteScreen = ({ route, navigation }) => {
             const fresh = res.data;
             setLinkedNotes(fresh.linked_notes || []);
             setLinkedNoteIds(fresh.linked_note_ids || []);
-            // Filter out suggestions already manually linked
             const currentLinkedIds = fresh.linked_note_ids || [];
             setSuggestedLinks(
                 (fresh.suggested_links || []).filter(s => !currentLinkedIds.includes(s.note_id))
@@ -187,39 +242,97 @@ const EditNoteScreen = ({ route, navigation }) => {
         }
     }, [initialNote.id]);
 
-    // On mount: fetch full note silently.
-    // This serves two purposes:
-    //   1. Logs a 'view' event on the backend (GET /notes/{id} triggers log_activity)
-    //   2. Hydrates linked_notes in case the note was opened via HomeScreen
-    //      (which passes data via route.params without an API call)
+    const fetchSimilarNotes = useCallback(async () => {
+        try {
+            const res = await api.get(`/notes/similar/${initialNote.id}`);
+            setSimilarNotes((res.data || []).filter(n => n.id !== initialNote.id));
+        } catch (e) {
+            // Similar notes is optional; silent failure is OK
+            console.log('Similar notes not available:', e.message);
+        }
+    }, [initialNote.id]);
+
     useEffect(() => {
         refreshNote();
+        fetchSimilarNotes();
     }, []);
+
+    const addTag = () => {
+        const raw = tagInput.trim().replace(/^#/, '').toLowerCase();
+        if (raw && !tags.includes(raw)) {
+            setTags(prev => [...prev, raw]);
+        }
+        setTagInput('');
+    };
+
+    const removeTag = (tag) => setTags(prev => prev.filter(t => t !== tag));
+
+    const generateMagicTags = async () => {
+        if (!title.trim() && !content.trim()) {
+            Alert.alert('Empty Note', 'Please add a title or some content first.');
+            return;
+        }
+
+        setGeneratingTags(true);
+        try {
+            const res = await api.post('/ai/magic-tags', {
+                title: title.trim(),
+                content: content.trim()
+            });
+
+            const newTags = res.data || [];
+            if (newTags.length > 0) {
+                setTags(prev => {
+                    const merged = [...prev];
+                    newTags.forEach(t => {
+                        if (!merged.includes(t)) Object.isFrozen(merged) ? null : merged.push(t);
+                    });
+                    return merged;
+                });
+            } else {
+                Alert.alert('No tags found', 'The AI could not generate any tags for this note.');
+            }
+        } catch (error) {
+            console.error('Magic Tags Error:', error);
+            Alert.alert('AI Error', 'Failed to generate magic tags. Check your API Key.');
+        } finally {
+            setGeneratingTags(false);
+        }
+    };
 
     const handleSave = async () => {
         if (!title.trim() || !content.trim()) {
-            Alert.alert('Error', 'Please fill in both title and content');
+            Alert.alert('Incomplete', 'Please provide both a title and content.');
             return;
         }
         setSaving(true);
+
+        // Grab any pending tag that wasn't committed yet
+        const finalTags = [...tags];
+        const pendingTag = tagInput.trim().replace(/^#/, '').toLowerCase();
+        if (pendingTag && !finalTags.includes(pendingTag)) {
+            finalTags.push(pendingTag);
+        }
+
+        console.log(`[EditNote] Sending payload -> id: ${initialNote.id}, title: ${title}, tags: ${JSON.stringify(finalTags)}`);
+
         try {
             await api.put(`/notes/${initialNote.id}`, {
                 title,
                 content,
-                tags: initialNote.tags || [],
+                tags: finalTags,
                 linked_note_ids: linkedNoteIds,
             });
             navigation.goBack();
         } catch (error) {
             Alert.alert('Error', 'Could not save note');
-            console.error(error);
         } finally {
             setSaving(false);
         }
     };
 
     const handleUnlink = (targetNoteId, targetTitle) => {
-        Alert.alert('Remove Link', `Unlink "${targetTitle}"?`, [
+        Alert.alert('Unlink Note', `Remove connection to "${targetTitle}"?`, [
             { text: 'Cancel', style: 'cancel' },
             {
                 text: 'Remove',
@@ -242,7 +355,6 @@ const EditNoteScreen = ({ route, navigation }) => {
         setLinkingId(suggestion.note_id);
         try {
             await api.post(`/notes/${initialNote.id}/link`, { target_note_id: suggestion.note_id });
-            // Remove from suggestions immediately (optimistic) then refresh for truth
             setSuggestedLinks(prev => prev.filter(s => s.note_id !== suggestion.note_id));
             await refreshNote();
         } catch (e) {
@@ -261,121 +373,206 @@ const EditNoteScreen = ({ route, navigation }) => {
             const res = await api.get(`/notes/${linkedNote.id}`);
             navigation.push('EditNote', { note: res.data });
         } catch (e) {
-            // Fallback with partial data if fetch fails
-            navigation.push('EditNote', {
-                note: {
-                    id: linkedNote.id,
-                    title: linkedNote.title,
-                    content: '',
-                    tags: [],
-                    linked_notes: [],
-                    linked_note_ids: [],
-                },
-            });
+            Alert.alert('Error', 'Could not open linked note');
         }
     };
 
     return (
-        <View style={styles.container}>
-            <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-                {/* Title */}
+        <KeyboardAvoidingView
+            style={[styles.container, { backgroundColor: theme.background }]}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
+        >
+            <ScrollView
+                contentContainerStyle={styles.scrollContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+            >
+                {/* Clean Title Input */}
                 <TextInput
-                    style={styles.inputTitle}
-                    placeholder="Title"
+                    style={[styles.inputTitle, { color: theme.text }]}
+                    placeholder="Note Title"
+                    placeholderTextColor={theme.textTertiary}
                     value={title}
                     onChangeText={setTitle}
-                />
-
-                {/* Content */}
-                <TextInput
-                    style={styles.inputContent}
-                    placeholder="Write your note..."
-                    value={content}
-                    onChangeText={setContent}
                     multiline
-                    textAlignVertical="top"
+                    scrollEnabled={false}
+                    onSubmitEditing={() => contentInputRef.current?.focus()}
                 />
 
-                {/* Suggested Links */}
-                {suggestedLinks.length > 0 && (
-                    <View style={styles.suggestedSection}>
-                        <View style={styles.suggestedHeader}>
-                            <Text style={styles.suggestedLabel}>✨ Suggested Links</Text>
-                            <Text style={styles.suggestedSub}>Based on similar content</Text>
-                        </View>
-                        {suggestedLinks.map(s => (
-                            <View key={s.note_id} style={styles.suggestionRow}>
-                                <View style={styles.suggestionLeft}>
-                                    <Text style={styles.suggestionTitle} numberOfLines={1}>{s.title}</Text>
-                                    {/* Similarity bar */}
-                                    <View style={styles.scoreBarBg}>
-                                        <View style={[styles.scoreBarFill, { width: `${Math.round(s.score * 100)}%` }]} />
-                                    </View>
-                                    <Text style={styles.scoreText}>{Math.round(s.score * 100)}% similar</Text>
-                                </View>
-                                <View style={styles.suggestionActions}>
-                                    <TouchableOpacity
-                                        style={[styles.linkConfirmBtn, linkingId === s.note_id && styles.linkConfirmBtnDisabled]}
-                                        onPress={() => handleConfirmLink(s)}
-                                        disabled={linkingId === s.note_id}
-                                    >
-                                        {linkingId === s.note_id
-                                            ? <ActivityIndicator size="small" color="#fff" />
-                                            : <Text style={styles.linkConfirmText}>Link</Text>
-                                        }
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={styles.dismissBtn}
-                                        onPress={() => handleDismissSuggestion(s.note_id)}
-                                    >
-                                        <Text style={styles.dismissText}>✕</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-                        ))}
-                    </View>
-                )}
+                <Animated.View entering={FadeIn.delay(100).duration(400)}>
+                    {/* Clean Content Input */}
+                    <TextInput
+                        ref={contentInputRef}
+                        style={[styles.inputContent, { color: theme.textSecondary }]}
+                        placeholder="Start typing..."
+                        placeholderTextColor={theme.textTertiary}
+                        value={content}
+                        onChangeText={setContent}
+                        multiline
+                        textAlignVertical="top"
+                        scrollEnabled={false}
+                    />
+                </Animated.View>
 
-                {/* Linked Notes */}
-                {linkedNotes.length > 0 && (
-                    <View style={styles.linkedSection}>
-                        <Text style={styles.linkedLabel}>Linked Notes</Text>
+                {/* Tag input area */}
+                <Animated.View entering={FadeInDown.delay(160)} style={[styles.tagSection, { borderTopColor: theme.border, borderBottomColor: theme.border }]}>
+                    <View style={styles.tagHeaderRow}>
+                        <View style={styles.tagSectionHeader}>
+                            <Tag size={14} color={theme.textSecondary} />
+                            <Text style={[styles.tagSectionLabel, { color: theme.textSecondary }]}>Tags</Text>
+                        </View>
+                        <TouchableOpacity
+                            onPress={generateMagicTags}
+                            disabled={generatingTags}
+                            style={[styles.aiTagButton, { backgroundColor: theme.primaryLight }]}
+                        >
+                            {generatingTags ? (
+                                <ActivityIndicator size="small" color={theme.primary} />
+                            ) : (
+                                <>
+                                    <Sparkles size={14} color={theme.primary} />
+                                    <Text style={[styles.aiTagText, { color: theme.primary }]}>AI Magic Tag</Text>
+                                </>
+                            )}
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.tagsRow}>
+                        {tags.map(tag => (
+                            <Animated.View key={tag} layout={Layout.springify()} entering={FadeIn.springify()}
+                                style={[styles.staticTag, { backgroundColor: theme.primaryLight }]}
+                            >
+                                <Text style={[styles.staticTagText, { color: theme.primary }]}>#{tag}</Text>
+                                <TouchableOpacity onPress={() => removeTag(tag)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                                    <X size={11} color={theme.primary} />
+                                </TouchableOpacity>
+                            </Animated.View>
+                        ))}
+                        <TextInput
+                            ref={tagInputRef}
+                            style={[styles.tagInlineInput, { color: theme.text }]}
+                            placeholder={tags.length === 0 ? 'Add tags...' : ''}
+                            placeholderTextColor={theme.textTertiary}
+                            value={tagInput}
+                            onChangeText={setTagInput}
+                            onBlur={addTag}
+                            onSubmitEditing={addTag}
+                            onKeyPress={({ nativeEvent }) => {
+                                if (nativeEvent.key === ',' || nativeEvent.key === ' ') addTag();
+                                else if (nativeEvent.key === 'Backspace' && tagInput === '' && tags.length > 0) removeTag(tags[tags.length - 1]);
+                            }}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                        />
+                    </View>
+                </Animated.View>
+
+                <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+                {/* Linked Notes Area */}
+                <Animated.View entering={SlideInDown.delay(300).springify()} style={styles.linksContainer}>
+                    <View style={styles.linksHeader}>
+                        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Connections</Text>
+                        <TouchableOpacity
+                            style={[styles.addLinkIconBtn, { backgroundColor: theme.surfaceHighlight }]}
+                            onPress={() => setModalVisible(true)}
+                        >
+                            <Plus size={16} color={theme.text} />
+                        </TouchableOpacity>
+                    </View>
+
+                    {linkedNotes.length > 0 ? (
                         <View style={styles.chipsRow}>
                             {linkedNotes.map(ln => (
                                 <LinkedChip
                                     key={ln.id}
                                     linkedNote={ln}
+                                    theme={theme}
                                     onPress={() => handleOpenLinkedNote(ln)}
                                     onUnlink={() => handleUnlink(ln.id, ln.title)}
                                 />
                             ))}
                         </View>
-                    </View>
+                    ) : (
+                        <TouchableOpacity
+                            style={[styles.emptyLinkArea, { borderColor: theme.border, backgroundColor: theme.surface }]}
+                            onPress={() => setModalVisible(true)}
+                        >
+                            <Link2 size={20} color={theme.textTertiary} />
+                            <Text style={[styles.emptyLinkText, { color: theme.textTertiary }]}>No linked notes yet</Text>
+                        </TouchableOpacity>
+                    )}
+                </Animated.View>
+
+                {/* Similar Notes — Neo4j graph traversal */}
+                {similarNotes.length > 0 && (
+                    <Animated.View entering={FadeInDown.delay(350).springify()} style={[styles.similarSection, { borderColor: theme.border, backgroundColor: theme.surface }]}>
+                        <View style={styles.suggestedHeader}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Network size={15} color={theme.textSecondary} />
+                                <Text style={[styles.suggestedLabel, { color: theme.textSecondary }]}>Related Notes</Text>
+                            </View>
+                            <Text style={[styles.dimLabel, { color: theme.textTertiary }]}>via Graph</Text>
+                        </View>
+                        {similarNotes.slice(0, 3).map(sn => (
+                            <TouchableOpacity
+                                key={sn.id}
+                                style={[styles.suggestionRow, { borderTopColor: theme.border }]}
+                                onPress={() => navigation.push('EditNote', { note: sn })}
+                                activeOpacity={0.7}
+                            >
+                                <View style={styles.suggestionLeft}>
+                                    <Text style={[styles.suggestionTitle, { color: theme.text }]} numberOfLines={1}>{sn.title}</Text>
+                                    {sn.tags && sn.tags.length > 0 && (
+                                        <Text style={[styles.scoreText, { color: theme.primary }]}>#{sn.tags[0]}</Text>
+                                    )}
+                                </View>
+                                <ChevronRight size={16} color={theme.textTertiary} />
+                            </TouchableOpacity>
+                        ))}
+                    </Animated.View>
                 )}
 
-                {/* Link Note Button */}
-                <TouchableOpacity
-                    style={styles.linkBtn}
-                    onPress={() => setModalVisible(true)}
-                >
-                    <Text style={styles.linkBtnIcon}>🔗</Text>
-                    <Text style={styles.linkBtnText}>Link Note</Text>
-                </TouchableOpacity>
+                {/* Suggested Links - AI Panel */}
+                {suggestedLinks.length > 0 && (
+                    <Animated.View entering={FadeInDown.delay(400).springify()} style={[styles.suggestedSection, { backgroundColor: theme.surface, borderColor: theme.primaryLight }]}>
+                        <View style={styles.suggestedHeader}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Sparkles size={16} color={theme.primary} />
+                                <Text style={[styles.suggestedLabel, { color: theme.primary }]}>AI Suggestions</Text>
+                            </View>
+                        </View>
 
-                {/* Save Button */}
-                <TouchableOpacity
-                    style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
-                    onPress={handleSave}
-                    disabled={saving}
-                >
-                    {saving
-                        ? <ActivityIndicator size="small" color="#fff" />
-                        : <Text style={styles.saveBtnText}>Save Changes</Text>
-                    }
-                </TouchableOpacity>
+                        {suggestedLinks.map(s => (
+                            <Animated.View key={s.note_id} layout={Layout.springify()} style={[styles.suggestionRow, { borderTopColor: theme.border }]}>
+                                <View style={styles.suggestionLeft}>
+                                    <Text style={[styles.suggestionTitle, { color: theme.text }]} numberOfLines={1}>{s.title}</Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <View style={[styles.scoreBarBg, { backgroundColor: theme.border }]}>
+                                            <View style={[styles.scoreBarFill, { backgroundColor: theme.primary, width: `${Math.round(s.score * 100)}%` }]} />
+                                        </View>
+                                        <Text style={[styles.scoreText, { color: theme.textTertiary }]}>{Math.round(s.score * 100)}% match</Text>
+                                    </View>
+                                </View>
+                                <View style={styles.suggestionActions}>
+                                    <TouchableOpacity
+                                        style={[styles.linkConfirmBtn, { backgroundColor: theme.primary }, linkingId === s.note_id && { opacity: 0.5 }]}
+                                        onPress={() => handleConfirmLink(s)}
+                                        disabled={linkingId === s.note_id}
+                                    >
+                                        {linkingId === s.note_id ? <ActivityIndicator size="small" color="#fff" /> : <Plus size={16} color="#FFF" />}
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={styles.dismissBtn} onPress={() => handleDismissSuggestion(s.note_id)}>
+                                        <X size={16} color={theme.textTertiary} />
+                                    </TouchableOpacity>
+                                </View>
+                            </Animated.View>
+                        ))}
+                    </Animated.View>
+                )}
             </ScrollView>
 
-            {/* Modal */}
             <LinkNoteModal
                 visible={modalVisible}
                 currentNoteId={initialNote.id}
@@ -383,129 +580,301 @@ const EditNoteScreen = ({ route, navigation }) => {
                 onClose={() => setModalVisible(false)}
                 onLink={refreshNote}
             />
-        </View>
+        </KeyboardAvoidingView>
     );
 };
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#fff' },
-    scrollContent: { padding: 20, paddingBottom: 40 },
+    container: { flex: 1 },
+    scrollContent: { padding: spacing.xl, paddingBottom: 100 },
 
+    // Header Btn
+    headerSaveBtn: {
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+        borderRadius: layout.radiusPill,
+    },
+    headerSaveText: {
+        fontWeight: '700',
+        fontSize: 14,
+    },
+
+    // Inputs
     inputTitle: {
-        fontSize: 22, fontWeight: '700', marginBottom: 16,
-        borderBottomWidth: 1.5, borderBottomColor: '#e0e0e0',
-        paddingBottom: 8, color: '#111',
+        ...typography.h1,
+        marginBottom: spacing.lg,
+        padding: 0,
     },
     inputContent: {
-        fontSize: 16, lineHeight: 24, color: '#333',
-        minHeight: 160, marginBottom: 24,
+        ...typography.body,
+        minHeight: 120,
+        padding: 0,
     },
 
-    // Suggested links section
-    suggestedSection: {
-        marginBottom: 20,
-        backgroundColor: '#fefce8',
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#fde68a',
-        padding: 12,
+    // Tags — now editable
+    tagSection: {
+        marginTop: spacing.xl,
+        paddingVertical: spacing.md,
+        borderTopWidth: 1,
+        borderBottomWidth: 1,
     },
-    suggestedHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 },
-    suggestedLabel: { fontSize: 13, fontWeight: '800', color: '#92400e' },
-    suggestedSub: { fontSize: 11, color: '#b45309' },
-    suggestionRow: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#fde68a',
+    tagHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: spacing.xs,
     },
-    suggestionLeft: { flex: 1, marginRight: 10 },
-    suggestionTitle: { fontSize: 13, fontWeight: '600', color: '#1c1917', marginBottom: 4 },
-    scoreBarBg: { height: 4, backgroundColor: '#fde68a', borderRadius: 2, marginBottom: 2 },
-    scoreBarFill: { height: 4, backgroundColor: '#f59e0b', borderRadius: 2 },
-    scoreText: { fontSize: 10, color: '#92400e' },
-    suggestionActions: { flexDirection: 'row', gap: 6, alignItems: 'center' },
-    linkConfirmBtn: {
-        backgroundColor: '#6366f1', borderRadius: 8,
-        paddingHorizontal: 12, paddingVertical: 6, minWidth: 46, alignItems: 'center',
+    tagSectionHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
     },
-    linkConfirmBtnDisabled: { backgroundColor: '#a5b4fc' },
-    linkConfirmText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-    dismissBtn: { padding: 4 },
-    dismissText: { fontSize: 16, color: '#b45309' },
+    tagSectionLabel: {
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    aiTagButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 16,
+    },
+    aiTagText: {
+        fontSize: 12,
+        fontWeight: '600',
+    },
+    tagsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: spacing.xs,
+        alignItems: 'center',
+        paddingTop: spacing.sm, // Added padding to separate from header
+    },
+    tagInlineInput: {
+        minWidth: 100,
+        flex: 1,
+        ...typography.bodySmall,
+        padding: 0,
+    },
+    staticTag: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: layout.radiusPill,
+    },
+    staticTagText: {
+        fontSize: 13,
+        fontWeight: '600',
+    },
 
-    // Linked notes section
-    linkedSection: { marginBottom: 20 },
-    linkedLabel: { fontSize: 12, fontWeight: '700', color: '#888', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10 },
-    chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+
+    divider: {
+        height: 1,
+        marginVertical: spacing.xl,
+    },
+
+    // Links Area
+    linksContainer: {
+        marginBottom: spacing.xl,
+    },
+    linksHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: spacing.md,
+    },
+    sectionTitle: {
+        ...typography.label,
+        letterSpacing: 1,
+    },
+    addLinkIconBtn: {
+        width: 28, height: 28,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    chipsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: spacing.sm
+    },
     chip: {
-        flexDirection: 'row', alignItems: 'center', gap: 5,
-        backgroundColor: '#eef2ff', borderRadius: 20,
-        paddingVertical: 6, paddingHorizontal: 12,
-        borderWidth: 1, borderColor: '#c7d2fe', maxWidth: 220,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: layout.radiusSmall,
+        borderWidth: 1,
+        maxWidth: '100%',
     },
-    chipIcon: { fontSize: 13 },
-    chipText: { fontSize: 13, color: '#4338ca', fontWeight: '600', flexShrink: 1 },
-    chipClose: { fontSize: 18, color: '#818cf8', lineHeight: 20, marginLeft: 2 },
+    chipText: {
+        fontSize: 14,
+        fontWeight: '600',
+        flexShrink: 1
+    },
+    emptyLinkArea: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        padding: spacing.lg,
+        borderRadius: layout.radius,
+        borderWidth: 1,
+        borderStyle: 'dashed',
+    },
+    emptyLinkText: {
+        ...typography.bodySmall,
+        fontWeight: '500',
+    },
 
-    // Link button
-    linkBtn: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-        gap: 8, paddingVertical: 12, borderRadius: 10,
-        borderWidth: 1.5, borderColor: '#c7d2fe', borderStyle: 'dashed',
-        backgroundColor: '#f8f9ff', marginBottom: 16,
+    // AI Suggestions Panel
+    suggestedSection: {
+        borderRadius: layout.radius,
+        borderWidth: 1,
+        padding: spacing.md,
+        overflow: 'hidden',
     },
-    linkBtnIcon: { fontSize: 16 },
-    linkBtnText: { fontSize: 15, color: '#4338ca', fontWeight: '600' },
+    // Similar Notes Panel (Neo4j)
+    similarSection: {
+        borderRadius: layout.radius,
+        borderWidth: 1,
+        padding: spacing.md,
+        overflow: 'hidden',
+        marginBottom: spacing.md,
+    },
+    dimLabel: {
+        fontSize: 11,
+        fontWeight: '500',
+    },
 
-    // Save button
-    saveBtn: {
-        backgroundColor: '#007bff', borderRadius: 10,
-        paddingVertical: 14, alignItems: 'center',
+    suggestedHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: spacing.md
     },
-    saveBtnDisabled: { backgroundColor: '#93c5fd' },
-    saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+    suggestedLabel: {
+        fontSize: 14,
+        fontWeight: '700'
+    },
+    suggestionRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: spacing.sm,
+        borderTopWidth: 1,
+    },
+    suggestionLeft: {
+        flex: 1,
+        marginRight: spacing.md
+    },
+    suggestionTitle: {
+        ...typography.bodySmall,
+        fontWeight: '600',
+        marginBottom: 4
+    },
+    scoreBarBg: {
+        width: 60,
+        height: 4,
+        borderRadius: 2,
+    },
+    scoreBarFill: {
+        height: 4,
+        borderRadius: 2
+    },
+    scoreText: {
+        fontSize: 10,
+        fontWeight: '500',
+    },
+    suggestionActions: {
+        flexDirection: 'row',
+        gap: spacing.sm,
+        alignItems: 'center'
+    },
+    linkConfirmBtn: {
+        width: 32, height: 32,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    dismissBtn: {
+        padding: spacing.xs
+    },
 
     // Modal
-    modalContainer: { flex: 1, backgroundColor: '#fff' },
+    modalContainer: {
+        flex: 1,
+    },
     modalHeader: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingHorizontal: 16, paddingVertical: 14,
-        borderBottomWidth: 1, borderBottomColor: '#f0f0f0',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.md,
+        borderBottomWidth: 1,
     },
-    modalTitle: { fontSize: 17, fontWeight: '700', color: '#111' },
-    modalCancelBtn: { minWidth: 60 },
-    modalCancelText: { fontSize: 16, color: '#666' },
+    modalTitle: {
+        ...typography.h3
+    },
+    modalCancelBtn: {
+        minWidth: 60
+    },
+    modalCancelText: {
+        ...typography.bodySmall
+    },
     modalDoneBtn: {
-        backgroundColor: '#007bff', borderRadius: 8,
-        paddingHorizontal: 14, paddingVertical: 7, minWidth: 60, alignItems: 'center',
+        borderRadius: layout.radiusPill,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+        minWidth: 60,
+        alignItems: 'center',
     },
-    modalDoneBtnDisabled: { backgroundColor: '#93c5fd' },
-    modalDoneText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-    modalSubtitle: { fontSize: 13, color: '#999', paddingHorizontal: 16, paddingVertical: 10 },
-    modalEmpty: { textAlign: 'center', marginTop: 50, color: '#aaa', fontSize: 15 },
-
+    modalDoneText: {
+        color: '#fff',
+        fontWeight: '700',
+        fontSize: 14
+    },
+    modalEmpty: {
+        textAlign: 'center',
+        marginTop: 50,
+    },
     modalRow: {
-        flexDirection: 'row', alignItems: 'center',
-        paddingVertical: 14, paddingHorizontal: 4,
-        borderRadius: 8,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.xl,
+        borderBottomWidth: 1,
     },
-    modalRowSelected: { backgroundColor: '#eef2ff' },
-    modalRowLinked: { opacity: 0.5 },
-    modalRowLeft: { flex: 1, marginRight: 12 },
-    modalRowTitle: { fontSize: 15, fontWeight: '600', color: '#111', marginBottom: 2 },
-    modalRowTitleLinked: { color: '#888' },
-    modalRowPreview: { fontSize: 13, color: '#999' },
-
+    modalRowLeft: {
+        flex: 1,
+        marginRight: spacing.md
+    },
+    modalRowTitle: {
+        ...typography.body,
+        fontWeight: '600',
+        marginBottom: 2
+    },
+    modalRowPreview: {
+        ...typography.bodySmall,
+    },
+    modalCheckboxArea: {
+        width: 30,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     checkbox: {
-        width: 24, height: 24, borderRadius: 6,
-        borderWidth: 2, borderColor: '#d1d5db',
-        justifyContent: 'center', alignItems: 'center',
+        width: 22, height: 22,
+        borderRadius: 6,
+        borderWidth: 2,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-    checkboxSelected: { backgroundColor: '#007bff', borderColor: '#007bff' },
-    checkboxLinked: { backgroundColor: '#10b981', borderColor: '#10b981' },
-    checkMark: { color: '#fff', fontSize: 13, fontWeight: '900' },
-    separator: { height: 1, backgroundColor: '#f3f4f6' },
 });
 
 export default EditNoteScreen;

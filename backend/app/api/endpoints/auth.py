@@ -3,6 +3,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from app.models.user import UserCreate, UserInDB, User
 from app.core.security import get_password_hash, verify_password, create_access_token
 from app.db.mongodb import db
+from app.db.neo4j_db import neo4j_db
 from datetime import timedelta
 
 router = APIRouter()
@@ -21,7 +22,20 @@ async def register(user: UserCreate):
 
     new_user = await database["users"].insert_one(user_in_db.model_dump())
     created_user = await database["users"].find_one({"_id": new_user.inserted_id})
-    return User.from_mongo(created_user)
+    
+    user_obj = User.from_mongo(created_user)
+    
+    # Create User node in Neo4j
+    driver = neo4j_db.get_driver()
+    if driver:
+        query = "MERGE (u:User {id: $user_id})"
+        try:
+            async with driver.session() as session:
+                await session.run(query, user_id=user_obj.id)
+        except Exception as neo4j_err:
+            print(f"[register] Neo4j unavailable: {neo4j_err}")
+            
+    return user_obj
 
 
 @router.post("/login")

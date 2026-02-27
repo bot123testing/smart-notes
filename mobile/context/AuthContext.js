@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import api from '../services/api';
+import api, { setAuthLogoutHandler } from '../services/api';
 
 export const AuthContext = createContext();
 
@@ -19,8 +19,16 @@ export const AuthProvider = ({ children }) => {
             }
             setUserToken(token);
         };
-
         bootstrapAsync();
+    }, []);
+
+    // Register signOut as the global 401 handler so the api interceptor
+    // can trigger a real logout when any request returns 401 (token expired).
+    useEffect(() => {
+        setAuthLogoutHandler(async () => {
+            await SecureStore.deleteItemAsync('userToken');
+            setUserToken(null);
+        });
     }, []);
 
     const authContext = React.useMemo(
@@ -31,11 +39,10 @@ export const AuthProvider = ({ children }) => {
                     // Note: Use form data for OAuth2PasswordRequestForm compatibility if needed, 
                     // but our backend expects standard form-data for /login endpoint if using OAuth2PasswordRequestForm
                     // However, axios usually sends JSON by default. Let's send x-www-form-urlencoded as per OAuth2 spec usually used by FastAPI
-                    const formData = new URLSearchParams();
-                    formData.append('username', email); // FastAPI OAuth2 expects 'username'
-                    formData.append('password', password);
+                    // React Native Axios doesn't serialize URLSearchParams properly
+                    const body = `username=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`;
 
-                    const response = await api.post('/auth/login', formData, {
+                    const response = await api.post('/auth/login', body, {
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
                     });
 
@@ -54,10 +61,10 @@ export const AuthProvider = ({ children }) => {
                 await SecureStore.deleteItemAsync('userToken');
                 setUserToken(null);
             },
-            signUp: async (email, password) => {
+            signUp: async (name, email, password) => {
                 setIsLoading(true);
                 try {
-                    await api.post('/auth/register', { email, password });
+                    await api.post('/auth/register', { name, email, password });
                     // Automatically sign in after register? Or just return success.
                     // Let's just return and let user sign in.
                 } catch (error) {

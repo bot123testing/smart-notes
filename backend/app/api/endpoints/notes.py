@@ -6,9 +6,14 @@ from app.models.metrics import RecommendationsResponse
 from app.models.user import User
 from app.api.deps import get_current_user
 from app.db.mongodb import db
+from app.db.redis import redis_client
+from app.db.neo4j_db import neo4j_db
+from app.db.elasticsearch_db import elasticsearch_db
+import json
 from app.api.activity_logger import log_activity
 from app.models.activity import ActionType
 from app.services.metrics_service import compute_and_store_metrics
+from app.services.recommendation_service import generate_hybrid_recommendations
 from app.services import nlp_service
 from datetime import datetime, timezone
 from bson import ObjectId
@@ -109,86 +114,34 @@ class LinkRequest(BaseModel):
 @router.get("/recommendations", response_model=RecommendationsResponse)
 async def get_recommendations(current_user: User = Depends(get_current_user)):
     """
-    Compute knowledge metrics for all user notes and return them sorted by
-    memory_decay (highest first) — i.e., notes most in need of review appear first.
+    Compute hybrid recommendations using Neo4j context and MongoDB memory decay.
+    Result is cached in Redis for 15 minutes.
     """
+    import traceback
     database = db.get_db()
-    return await compute_and_store_metrics(database, current_user.id)
+    r = redis_client.get_redis()
+    cache_key = f"user:{current_user.id}:recommendations"
+    
+    # 1. Attempt Redis cache fetch
+    cached_recs = await r.get(cache_key)
+    if cached_recs:
+        data = json.loads(cached_recs)
+        return RecommendationsResponse(**data)
+        
+    # 2. On miss, generate hybrid recommendations
+    try:
+        return await generate_hybrid_recommendations(database, current_user.id)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Graph response models ─────────────────────────────────────────────────────
-
-class GraphNode(BaseModel):
-    id: str
-    title: str
-    importance_score: float = 0.0
-    memory_decay: float = 0.0
-    link_count: int = 0
-
-class GraphEdge(BaseModel):
-    source: str
-    target: str
-
-class GraphResponse(BaseModel):
-    nodes: List[GraphNode]
-    edges: List[GraphEdge]
-
-
-@router.get("/graph", response_model=GraphResponse)
-async def get_notes_graph(current_user: User = Depends(get_current_user)):
-    """
-    Return all user notes as graph nodes plus their manual links as edges.
-    Edges are deduplicated (bidirectional links produce one edge).
-    Nodes are enriched with importance_score and memory_decay from knowledge_metrics.
-    """
-    database = db.get_db()
-
-    notes = await database["notes"].find(
-        {"owner_id": current_user.id},
-        {"_id": 1, "title": 1, "linked_note_ids": 1},
-    ).to_list(length=500)
-
-    metrics_docs = await database["knowledge_metrics"].find(
-        {"user_id": current_user.id},
-    ).to_list(length=500)
-    metrics_by_note = {m["note_id"]: m for m in metrics_docs}
-
-    note_ids = {str(n["_id"]) for n in notes}
-    graph_nodes: List[GraphNode] = []
-    for note in notes:
-        nid = str(note["_id"])
-        m = metrics_by_note.get(nid, {})
-        graph_nodes.append(GraphNode(
-            id=nid,
-            title=note.get("title", "Untitled"),
-            importance_score=round(float(m.get("importance_score", 0.0)), 4),
-            memory_decay=round(float(m.get("memory_decay", 0.0)), 4),
-            link_count=len(note.get("linked_note_ids", [])),
-        ))
-
-    seen: set = set()
-    graph_edges: List[GraphEdge] = []
-    for note in notes:
-        src = str(note["_id"])
-        for raw_target in note.get("linked_note_ids", []):
-            tgt = str(raw_target)
-            if tgt not in note_ids:
-                continue
-            pair = frozenset((src, tgt))
-            if pair not in seen:
-                seen.add(pair)
-                graph_edges.append(GraphEdge(source=src, target=tgt))
-
-    return GraphResponse(nodes=graph_nodes, edges=graph_edges)
 
 
 @router.get("/", response_model=List[Note])
 async def read_notes(current_user: User = Depends(get_current_user)):
     database = db.get_db()
     notes = await database["notes"].find({"owner_id": current_user.id}).to_list(length=100)
-    # Log a view event for each note returned in the list
-    for note in notes:
-        await log_activity(database, current_user.id, str(note["_id"]), ActionType.view)
     return [await _populate_links(database, note) for note in notes]
 
 
@@ -215,18 +168,128 @@ async def get_note_suggestions(
     return [SuggestedLink(**s) if isinstance(s, dict) else s for s in raw]
 
 
+@router.get("/recent", response_model=List[Note])
+async def read_recent_notes(current_user: User = Depends(get_current_user)):
+    database = db.get_db()
+    r = redis_client.get_redis()
+    recent_key = f"user:{current_user.id}:recent_notes"
+    
+    # get recently viewed note IDs from redis list
+    recent_note_ids = await r.lrange(recent_key, 0, -1)
+    if not recent_note_ids:
+        return []
+        
+    oids = []
+    for rid in recent_note_ids:
+        try:
+            oids.append(ObjectId(rid))
+        except Exception:
+            pass
+            
+    if not oids:
+        return []
+        
+    notes_cursor = database["notes"].find({"_id": {"$in": oids}})
+    notes_map = {str(n["_id"]): n async for n in notes_cursor}
+    
+    # Return notes preserving recent order
+    ordered_notes = []
+    for rid in recent_note_ids:
+        if rid in notes_map:
+            doc = notes_map[rid]
+            ordered_notes.append(await _populate_links(database, doc))
+            
+    return ordered_notes
+
+
+@router.get("/similar/{note_id}", response_model=List[Note])
+async def get_similar_notes(note_id: str, current_user: User = Depends(get_current_user)):
+    """
+    Find most related/similar notes using graph traversal in Neo4j.
+    Looks for notes within 2 hops (distance 1-2) from the start note.
+    """
+    database = db.get_db()
+    # verify ownership
+    await _get_user_note(database, note_id, current_user.id)
+    
+    driver = neo4j_db.get_driver()
+    if not driver:
+        return []
+        
+    query = """
+    MATCH p = (n:Note {id: $note_id})-[*1..2]-(similar:Note)
+    WHERE similar.id <> $note_id AND similar.owner_id = $owner_id
+    WITH similar, min(length(p)) AS distance, count(p) AS paths
+    ORDER BY paths DESC, distance ASC
+    LIMIT 5
+    RETURN similar.id as id
+    """
+    try:
+        async with driver.session() as session:
+            result = await session.run(query, note_id=note_id, owner_id=current_user.id)
+            records = await result.data()
+    except Exception as neo4j_err:
+        print(f"[similar_notes] Neo4j unavailable: {neo4j_err}")
+        return []
+        
+    similar_ids = [rec["id"] for rec in records]
+    if not similar_ids:
+        return []
+        
+    oids = []
+    for sid in similar_ids:
+        try:
+            oids.append(ObjectId(sid))
+        except Exception:
+            pass
+            
+    notes_cursor = database["notes"].find({"_id": {"$in": oids}})
+    notes_map = {str(n["_id"]): n async for n in notes_cursor}
+    
+    # Preserve Neo4j ordering (which is sorted by traversal strength)
+    ordered_notes = []
+    for sid in similar_ids:
+        if sid in notes_map:
+            doc = notes_map[sid]
+            ordered_notes.append(await _populate_links(database, doc))
+            
+    return ordered_notes
+
+
 @router.get("/{note_id}", response_model=Note)
 async def read_note(note_id: str, current_user: User = Depends(get_current_user)):
     database = db.get_db()
+    r = redis_client.get_redis()
+    cache_key = f"note:{note_id}"
+    recent_key = f"user:{current_user.id}:recent_notes"
+    
+    # Track recently viewed notes (push to list)
+    await r.lrem(recent_key, 0, note_id)  # Remove if exists to push to front
+    await r.lpush(recent_key, note_id)
+    await r.ltrim(recent_key, 0, 19)      # Keep top 20
+    
+    # Attempt cache fetch
+    cached_note = await r.get(cache_key)
+    if cached_note:
+        await log_activity(database, current_user.id, note_id, ActionType.view)
+        data = json.loads(cached_note)
+        return Note(**data)
+        
     note_doc = await _get_user_note(database, note_id, current_user.id)
+    populated = await _populate_links(database, note_doc)
+    
+    # Cache the result for 10 minutes (600 seconds)
+    await r.setex(cache_key, 600, populated.model_dump_json(by_alias=True))
+    
     await log_activity(database, current_user.id, note_id, ActionType.view)
-    return await _populate_links(database, note_doc)
+    return populated
 
 
 @router.post("/", response_model=Note)
 async def create_note(note: NoteCreate, current_user: User = Depends(get_current_user)):
     database = db.get_db()
     note_data = note.model_dump()
+    print(f"[DEBUG CREATE] Incoming note_data: {note_data}")
     note_data["owner_id"] = current_user.id
     note_data["created_at"] = datetime.now(timezone.utc)
     note_data["updated_at"] = datetime.now(timezone.utc)
@@ -235,6 +298,35 @@ async def create_note(note: NoteCreate, current_user: User = Depends(get_current
 
     result = await database["notes"].insert_one(note_data)
     note_id_str = str(result.inserted_id)
+    
+    # Create Note in ElasticSearch
+    es_client = elasticsearch_db.get_client()
+    if es_client:
+        es_doc = {
+            "id": note_id_str,
+            "owner_id": current_user.id,
+            "title": note.title,
+            "content": note.content,
+            "tags": getattr(note, "tags", [])
+        }
+        try:
+            await es_client.index(index="notes", id=note_id_str, document=es_doc)
+        except Exception as e:
+            print(f"ES index failed: {e}")
+    
+    # Create Note in Neo4j
+    driver = neo4j_db.get_driver()
+    if driver:
+        query = """
+        MERGE (n:Note {id: $note_id})
+        SET n.title = $title, n.owner_id = $owner_id
+        """
+        try:
+            async with driver.session() as session:
+                await session.run(query, note_id=note_id_str, title=note.title, owner_id=current_user.id)
+        except Exception as neo4j_err:
+            print(f"[create_note] Neo4j unavailable: {neo4j_err}")
+            
     await log_activity(database, current_user.id, note_id_str, ActionType.create)
     # Compute NLP suggestions after insert (fire-and-forget)
     await _compute_suggestions(database, note_id_str, current_user.id)
@@ -251,6 +343,7 @@ async def update_note(
     await _get_user_note(database, note_id, current_user.id)  # ownership check
 
     update_data = note.model_dump(exclude_unset=True)
+    print(f"[DEBUG UPDATE] Incoming update_data: {update_data}")
     update_data["updated_at"] = datetime.now(timezone.utc)
 
     await database["notes"].update_one({"_id": oid}, {"$set": update_data})
@@ -258,6 +351,37 @@ async def update_note(
     # Recompute NLP suggestions after content changes
     await _compute_suggestions(database, note_id, current_user.id)
     updated = await database["notes"].find_one({"_id": oid})
+    
+    # Update Note in ElasticSearch
+    es_client = elasticsearch_db.get_client()
+    if es_client:
+        es_doc = {
+            "id": note_id,
+            "owner_id": current_user.id,
+            "title": note.title,
+            "content": note.content,
+            "tags": getattr(note, "tags", [])
+        }
+        try:
+            await es_client.update(index="notes", id=note_id, doc=es_doc, doc_as_upsert=True)
+        except Exception as e:
+            print(f"ES update failed: {e}")
+    
+    # Update Note title in Neo4j
+    driver = neo4j_db.get_driver()
+    if driver:
+        query = "MATCH (n:Note {id: $note_id}) SET n.title = $title"
+        try:
+            async with driver.session() as session:
+                await session.run(query, note_id=note_id, title=note.title)
+        except Exception as neo4j_err:
+            print(f"[update_note] Neo4j unavailable: {neo4j_err}")
+    
+    # Invalidate caches
+    r = redis_client.get_redis()
+    await r.delete(f"note:{note_id}")
+    await r.delete(f"user:{current_user.id}:recommendations")
+    
     return await _populate_links(database, updated)
 
 
@@ -274,6 +398,30 @@ async def delete_note(note_id: str, current_user: User = Depends(get_current_use
     )
 
     await database["notes"].delete_one({"_id": oid})
+    
+    # Delete Note in ElasticSearch
+    es_client = elasticsearch_db.get_client()
+    if es_client:
+        try:
+            await es_client.delete(index="notes", id=note_id)
+        except Exception as e:
+            print(f"ES delete failed: {e}")
+    
+    # Detach Delete Note in Neo4j
+    driver = neo4j_db.get_driver()
+    if driver:
+        query = "MATCH (n:Note {id: $note_id}) DETACH DELETE n"
+        try:
+            async with driver.session() as session:
+                await session.run(query, note_id=note_id)
+        except Exception as neo4j_err:
+            print(f"[delete_note] Neo4j unavailable: {neo4j_err}")
+    
+    # Invalidate caches
+    r = redis_client.get_redis()
+    await r.delete(f"note:{note_id}")
+    await r.delete(f"user:{current_user.id}:recommendations")
+    
     return None
 
 
@@ -313,6 +461,27 @@ async def link_notes(
     )
 
     updated = await database["notes"].find_one({"_id": source_oid})
+    
+    # Create bidirection relationship in Neo4j
+    driver = neo4j_db.get_driver()
+    if driver:
+        # Enforce unidirection lexicographical edge to stop duplicate path blowups in Neo4j
+        n_ids = sorted([note_id, target_id])
+        query = """
+        MATCH (a:Note {id: $n1})
+        MATCH (b:Note {id: $n2})
+        MERGE (a)-[:RELATED_TO]->(b)
+        """
+        try:
+            async with driver.session() as session:
+                await session.run(query, n1=n_ids[0], n2=n_ids[1])
+        except Exception as neo4j_err:
+            print(f"[link_notes] Neo4j unavailable: {neo4j_err}")
+    
+    # Invalidate caches for both notes and recommendations
+    r = redis_client.get_redis()
+    await r.delete(f"note:{note_id}", f"note:{target_id}", f"user:{current_user.id}:recommendations")
+    
     return await _populate_links(database, updated)
 
 
@@ -346,4 +515,23 @@ async def unlink_notes(
     )
 
     updated = await database["notes"].find_one({"_id": source_oid})
+    
+    # Delete relationship in Neo4j
+    driver = neo4j_db.get_driver()
+    if driver:
+        n_ids = sorted([note_id, target_id])
+        query = """
+        MATCH (a:Note {id: $n1})-[r:RELATED_TO]-(b:Note {id: $n2})
+        DELETE r
+        """
+        try:
+            async with driver.session() as session:
+                await session.run(query, n1=n_ids[0], n2=n_ids[1])
+        except Exception as neo4j_err:
+            print(f"[unlink_notes] Neo4j unavailable: {neo4j_err}")
+    
+    # Invalidate caches for both notes and recommendations
+    r = redis_client.get_redis()
+    await r.delete(f"note:{note_id}", f"note:{target_id}", f"user:{current_user.id}:recommendations")
+    
     return await _populate_links(database, updated)

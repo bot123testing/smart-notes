@@ -15,6 +15,13 @@ const api = axios.create({
   },
 });
 
+// ── Auto-logout callback ─────────────────────────────────────────────────────
+// AuthContext calls setAuthLogoutHandler(signOut) on mount so the 401
+// interceptor can trigger a real sign-out without a circular import.
+let _logoutHandler = null;
+export const setAuthLogoutHandler = (fn) => { _logoutHandler = fn; };
+
+// ── Request interceptor: attach Bearer token ─────────────────────────────────
 api.interceptors.request.use(
   async (config) => {
     const token = await SecureStore.getItemAsync('userToken');
@@ -23,7 +30,21 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
+  (error) => Promise.reject(error)
+);
+
+// ── Response interceptor: auto-logout on 401 ────────────────────────────────
+// When the server returns 401 (token expired / invalid), clear the stored
+// token and call the AuthContext signOut so the Login screen appears.
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error?.response?.status === 401) {
+      await SecureStore.deleteItemAsync('userToken');
+      if (_logoutHandler) {
+        _logoutHandler();
+      }
+    }
     return Promise.reject(error);
   }
 );
