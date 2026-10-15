@@ -1,0 +1,70 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# General IDE/Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vs/
+
+# ====================
+# Backend (Python / FastAPI)
+# ====================
+backend/.env
+backend/venv/
+backend/env/
+backend/__pycache__/
+backend/**/*.pyc
+backend/**/*.pyo
+backend/**/*.pyd
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/dist/
+backend/build/
+backend/*.egg-info/
+backend/celerybeat-schedule.db
+
+# ====================
+# Mobile (Expo / React Native)
+# ====================
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile/npm-debug.*
+mobile/yarn-error.log
+mobile/yarn-debug.log
+mobile/.pnp.*
+mobile/.yarn/cache
+mobile/.yarn/unplugged
+mobile/.yarn/build-state.yml
+mobile/.yarn/install-state.gz
+mobile/.env
+mobile/coverage/
+mobile/android/app/build/
+mobile/ios/build/
+
+# ====================
+# Web (Next.js / React)
+# ====================
+web/node_modules/
+web/.next/
+web/out/
+web/build/
+web/.env*.local
+web/.env
+web/coverage/
+web/npm-debug.*
+web/yarn-error.log
+web/yarn-debug.log
+
+# ====================
+# Database Data / Logs
+# ====================
+data/
+logs/
+*.log
