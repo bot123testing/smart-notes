@@ -264,8 +264,10 @@ export default function Home() {
       setSuggestions(prev => prev.filter(s => s.note_id !== suggestion.note_id));
       const res = await api.get(`/notes/${selected.id}`);
       setSelected(res.data);
-      await fetchNotes();
-    } catch { alert('Could not link notes.'); }
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.detail || 'Could not link notes.');
+    }
   };
 
   /* ── Unlink ── */
