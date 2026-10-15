@@ -6,8 +6,14 @@ class RedisManager:
 
     async def connect(self):
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        self.client = redis.from_url(redis_url, decode_responses=True)
-        print("Connected to Redis")
+        try:
+            # protocol=2 ensures compatibility with Redis for Windows (3.0.x) by avoiding the 'HELLO' command
+            self.client = redis.from_url(redis_url, decode_responses=True, protocol=2)
+            await self.client.ping()
+            print("Connected to Redis")
+        except Exception as e:
+            print(f"Redis connection failed: {e}")
+            self.client = None
 
     async def disconnect(self):
         if self.client:

@@ -462,14 +462,14 @@ async def link_notes(
 
     updated = await database["notes"].find_one({"_id": source_oid})
     
-    # Create bidirection relationship in Neo4j
+    # Create bidirectional relationship in Neo4j
     driver = neo4j_db.get_driver()
     if driver:
         # Enforce unidirection lexicographical edge to stop duplicate path blowups in Neo4j
         n_ids = sorted([note_id, target_id])
         query = """
-        MATCH (a:Note {id: $n1})
-        MATCH (b:Note {id: $n2})
+        MERGE (a:Note {id: $n1})
+        MERGE (b:Note {id: $n2})
         MERGE (a)-[:RELATED_TO]->(b)
         """
         try:
@@ -480,7 +480,11 @@ async def link_notes(
     
     # Invalidate caches for both notes and recommendations
     r = redis_client.get_redis()
-    await r.delete(f"note:{note_id}", f"note:{target_id}", f"user:{current_user.id}:recommendations")
+    if r:
+        try:
+            await r.delete(f"note:{note_id}", f"note:{target_id}", f"user:{current_user.id}:recommendations")
+        except Exception as redis_err:
+            print(f"[link_notes] Redis cache invalidation error: {redis_err}")
     
     return await _populate_links(database, updated)
 
@@ -532,6 +536,10 @@ async def unlink_notes(
     
     # Invalidate caches for both notes and recommendations
     r = redis_client.get_redis()
-    await r.delete(f"note:{note_id}", f"note:{target_id}", f"user:{current_user.id}:recommendations")
+    if r:
+        try:
+            await r.delete(f"note:{note_id}", f"note:{target_id}", f"user:{current_user.id}:recommendations")
+        except Exception as redis_err:
+            print(f"[unlink_notes] Redis cache invalidation error: {redis_err}")
     
     return await _populate_links(database, updated)
