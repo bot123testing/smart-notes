@@ -9,26 +9,40 @@ logging.getLogger("neo4j").setLevel(logging.ERROR)
 logging.getLogger("neo4j.io").setLevel(logging.ERROR)
 
 
+from app.core.config import settings
+
 class Neo4jManager:
     driver: AsyncDriver = None
 
     async def connect(self):
-        uri = os.getenv("NEO4J_URI", "neo4j://localhost:7687")
-        # Redirect stderr during connect to suppress the driver's internal
-        # "Unable to retrieve routing information" print() calls
+        uri = os.getenv("NEO4J_URI", getattr(settings, "neo4j_uri", "bolt://127.0.0.1:7687"))
+        user = os.getenv("NEO4J_USER", getattr(settings, "neo4j_user", "neo4j"))
+        password = os.getenv("NEO4J_PASSWORD", getattr(settings, "neo4j_password", "password"))
+
         _stderr = sys.stderr
         sys.stderr = StringIO()
         try:
-            self.driver = AsyncGraphDatabase.driver(uri)
+            auth = (user, password) if user and password else None
+            if auth:
+                self.driver = AsyncGraphDatabase.driver(uri, auth=auth)
+            else:
+                self.driver = AsyncGraphDatabase.driver(uri)
             await self.driver.verify_connectivity()
             sys.stderr = _stderr
-            print("Connected to Neo4j")
-        except Exception as e:
-            sys.stderr = _stderr
-            print("Neo4j unavailable — graph features will be skipped.")
-            if self.driver:
-                await self.driver.close()
-            self.driver = None  # get_driver() returns None → all if-driver guards skip cleanly
+            print(f"Connected to Neo4j at {uri}")
+        except Exception:
+            try:
+                # Fallback attempt without auth or alternative URI
+                self.driver = AsyncGraphDatabase.driver(uri)
+                await self.driver.verify_connectivity()
+                sys.stderr = _stderr
+                print(f"Connected to Neo4j at {uri}")
+            except Exception:
+                sys.stderr = _stderr
+                print("Neo4j unavailable — graph features will be skipped.")
+                if self.driver:
+                    await self.driver.close()
+                self.driver = None
 
     async def disconnect(self):
         if self.driver:
