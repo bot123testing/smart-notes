@@ -23,12 +23,5 @@ async def get_magic_tags(
     if not request.title.strip() and not request.content.strip():
         raise HTTPException(status_code=400, detail="Note must have title or content to tag")
         
-    client = ai_service.get_client()
-    if not client:
-        raise HTTPException(
-            status_code=503, 
-            detail="AI features are currently unavailable (Missing API Key)"
-        )
-        
     tags = await ai_service.auto_tag_note(request.title, request.content)
     return tags
