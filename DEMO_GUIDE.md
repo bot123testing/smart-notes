@@ -123,20 +123,36 @@ Follow these 6 sequential steps to showcase the full depth of the project:
 
 If evaluators ask to see raw database records in terminal:
 
-### 1. View Data in MongoDB
-Open a terminal and run:
-```powershell
-mongosh
-use smartnotes
-db.notes.find().pretty()
-```
+### 1. View Data in MongoDB (GUI or Shell)
+- **Visual GUI**: Open **MongoDB Compass**, click **Connect** (`mongodb://localhost:27017`), select `smartnotes` database, and click the `notes` collection.
+- **Terminal Shell**:
+  ```powershell
+  mongosh
+  use smartnotes
+  db.notes.find().pretty()
+  ```
 
-### 2. View Cache Keys in Redis
+### 2. View Cache Keys in Redis (redis-cli)
 Open a terminal and run:
 ```powershell
-redis-cli
+& "C:\Program Files\Redis\redis-cli.exe"
+```
+Commands to run in the Redis prompt:
+```text
+# Heartbeat
+PING
+
+# Memory statistics
+INFO memory
+
+# View all cached keys
 KEYS *
-GET "cache:notes:alex@example.com"
+
+# Inspect key data structure type
+TYPE "user:<user_id>:recent_notes"
+
+# Read cached note feed (stored as Redis List)
+LRANGE "user:<user_id>:recent_notes" 0 -1
 ```
 
 ### 3. View Nodes & Edges in Neo4j Browser
