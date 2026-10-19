@@ -5,6 +5,7 @@ from app.models.user import User
 from app.api.deps import get_current_user
 from app.db.elasticsearch_db import elasticsearch_db
 from app.db.mongodb import db
+from app.core.config import settings
 from bson import ObjectId
 import re
 
@@ -64,7 +65,7 @@ async def search_notes(
     }
 
     try:
-        response = await client.search(index="notes", query=query, size=20)
+        response = await client.search(index=f"{settings.ES_INDEX_PREFIX}notes", query=query, size=20)
         hits = response["hits"]["hits"]
         
         hit_ids = []

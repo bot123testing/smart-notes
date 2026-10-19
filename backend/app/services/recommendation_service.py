@@ -5,6 +5,7 @@ from bson import ObjectId
 from app.models.metrics import NoteRecommendation, RecommendationsResponse
 from app.db.neo4j_db import neo4j_db
 from app.db.redis import redis_client
+from app.core.config import settings
 
 async def generate_hybrid_recommendations(database, user_id: str) -> RecommendationsResponse:
     """
@@ -13,7 +14,7 @@ async def generate_hybrid_recommendations(database, user_id: str) -> Recommendat
     """
     # 1. Fetch Context (Recently viewed notes) from Redis
     r = redis_client.get_redis()
-    recent_key = f"user:{user_id}:recent_notes"
+    recent_key = f"{settings.REDIS_KEY_PREFIX}user:{user_id}:recent_notes"
     recent_note_ids = await r.lrange(recent_key, 0, 4) # Get top 5 recent notes
     recent_note_ids = [rid for rid in recent_note_ids if rid]
 
@@ -25,9 +26,9 @@ async def generate_hybrid_recommendations(database, user_id: str) -> Recommendat
         # Perform a 1-2 hop traversal originating from ALL recently viewed notes simultaneously.
         # We value nodes that are connected to MULTIPLE recently viewed notes (high 'paths' count),
         # as well as nodes that are physically closer (shorter 'distance').
-        query = """
+        query = f"""
         UNWIND $recent_ids AS start_id
-        MATCH p = (start:Note {id: start_id})-[*1..2]-(candidate:Note {owner_id: $owner_id})
+        MATCH p = (start:{settings.NEO4J_LABEL_PREFIX}Note {{id: start_id}})-[*1..2]-(candidate:{settings.NEO4J_LABEL_PREFIX}Note {{owner_id: $owner_id}})
         WHERE NOT candidate.id IN $recent_ids
         WITH candidate, min(length(p)) AS min_dist, count(p) AS path_count
         // Score: closer distance is better, more paths to the context cluster is better
@@ -47,8 +48,8 @@ async def generate_hybrid_recommendations(database, user_id: str) -> Recommendat
     # Fallback if no recent history or graph traversal yields nothing:
     # Just fetch the most connected nodes globally for this user.
     if driver and not candidate_scores:
-        query = """
-        MATCH (n:Note {owner_id: $owner_id})-[r:RELATED_TO]-()
+        query = f"""
+        MATCH (n:{settings.NEO4J_LABEL_PREFIX}Note {{owner_id: $owner_id}})-[r:RELATED_TO]-()
         WITH n, count(r) AS degree
         WHERE degree > 0
         RETURN n.id AS id, degree * 0.5 AS graph_score
@@ -134,7 +135,7 @@ async def generate_hybrid_recommendations(database, user_id: str) -> Recommendat
     response = RecommendationsResponse(notes=recommendations, total=len(recommendations))
     
     # 5. Cache the full JSON response in Redis for 15 minutes (900s)
-    cache_key = f"user:{user_id}:recommendations"
+    cache_key = f"{settings.REDIS_KEY_PREFIX}user:{user_id}:recommendations"
     await r.setex(cache_key, 900, response.model_dump_json(by_alias=True))
     
     return response

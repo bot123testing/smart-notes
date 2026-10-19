@@ -1,12 +1,11 @@
 import redis.asyncio as redis
-import os
+from app.core.config import settings
 
 class RedisManager:
     client: redis.Redis = None
 
     async def connect(self):
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        self.client = redis.from_url(redis_url, decode_responses=True)
+        self.client = redis.from_url(settings.redis_url, decode_responses=True, protocol=2)
         print("Connected to Redis")
 
     async def disconnect(self):

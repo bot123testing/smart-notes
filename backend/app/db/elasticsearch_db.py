@@ -1,6 +1,7 @@
 import os
 import logging
 from elasticsearch import AsyncElasticsearch
+from app.core.config import settings
 
 # Suppress elastic_transport/aiohttp internal noise
 logging.getLogger("elastic_transport").setLevel(logging.ERROR)
@@ -11,7 +12,7 @@ class ElasticSearchManager:
     client: AsyncElasticsearch = None
 
     async def connect(self):
-        uri = os.getenv("ELASTICSEARCH_URI", "http://localhost:9200")
+        uri = settings.elasticsearch_url
         try:
             self.client = AsyncElasticsearch(uri)
             info = await self.client.info()
@@ -24,7 +25,7 @@ class ElasticSearchManager:
             self.client = None  # get_client() returns None → all if-client guards skip cleanly
 
     async def _init_indices(self):
-        index_name = "notes"
+        index_name = f"{settings.ES_INDEX_PREFIX}notes"
         exists = await self.client.indices.exists(index=index_name)
         if not exists:
             mapping = {

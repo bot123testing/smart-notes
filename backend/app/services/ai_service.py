@@ -32,11 +32,26 @@ async def auto_tag_note(title: str, content: str) -> list[str]:
     Content: {content}
     """
 
+    import hashlib
+    from pathlib import Path
+    
+    # Hash for replay fixture (chunk text + prompt version only)
+    fixture_hash = hashlib.sha256(f"v1:{title}\n{content}".encode()).hexdigest()[:16]
+    fixtures_dir = Path(__file__).resolve().parent.parent.parent / "fixtures" / "gemini_replays"
+    fixtures_dir.mkdir(parents=True, exist_ok=True)
+    fixture_file = fixtures_dir / f"tags_{fixture_hash}.json"
+
+    # Replay mode: serve from fixture if present
+    if settings.GEMINI_MODE == "replay" and fixture_file.exists():
+        try:
+            with open(fixture_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[AI Service Replay] Failed to load fixture: {e}")
+
     try:
-        # Use synchronous SDK directly for simplicity inside thread pool later, or standard async wrapper
-        # The new SDK `client.models.generate_content_async` handles async natively.
         response = await client.aio.models.generate_content(
-            model='gemini-2.5-flash-lite',
+            model=settings.GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2,
@@ -55,9 +70,22 @@ async def auto_tag_note(title: str, content: str) -> list[str]:
                 sanitized = "".join(c for c in str(t).lower() if c.isalnum() or c == '-')
                 if sanitized and sanitized not in clean_tags:
                     clean_tags.append(sanitized)
-            return clean_tags[:5]
+            final_tags = clean_tags[:5]
+            
+            # Record fixture during live run
+            try:
+                with open(fixture_file, "w", encoding="utf-8") as f:
+                    json.dump(final_tags, f, indent=2)
+            except Exception as e:
+                print(f"[AI Service] Failed to save replay fixture: {e}")
+
+            return final_tags
             
         return []
     except Exception as e:
         print(f"[AI Service] Error generating tags: {e}")
+        # In replay mode with no fixture, return sensible deterministic fallback
+        if settings.GEMINI_MODE == "replay":
+            words = [w.lower() for w in f"{title} {content}".split() if len(w) > 4]
+            return list(dict.fromkeys(words))[:3]
         return []

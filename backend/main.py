@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings
+from app.core.config import settings, verify_namespace_guard
 from app.api.endpoints import auth, notes, activity, graph, search, ai
 from app.db.mongodb import db
 from app.db.redis import redis_client
@@ -11,6 +11,9 @@ from app.db.elasticsearch_db import elasticsearch_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Namespace safety check: aborts if not running in isolated studypath namespace
+    verify_namespace_guard()
+
     # Startup: connect to MongoDB, Redis, Neo4j, and ES
     await db.connect()
     await redis_client.connect()

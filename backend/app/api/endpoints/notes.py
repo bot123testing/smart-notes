@@ -9,6 +9,7 @@ from app.db.mongodb import db
 from app.db.redis import redis_client
 from app.db.neo4j_db import neo4j_db
 from app.db.elasticsearch_db import elasticsearch_db
+from app.core.config import settings
 import json
 from app.api.activity_logger import log_activity
 from app.models.activity import ActionType
@@ -120,7 +121,7 @@ async def get_recommendations(current_user: User = Depends(get_current_user)):
     import traceback
     database = db.get_db()
     r = redis_client.get_redis()
-    cache_key = f"user:{current_user.id}:recommendations"
+    cache_key = f"{settings.REDIS_KEY_PREFIX}user:{current_user.id}:recommendations"
     
     # 1. Attempt Redis cache fetch
     cached_recs = await r.get(cache_key)
@@ -172,7 +173,7 @@ async def get_note_suggestions(
 async def read_recent_notes(current_user: User = Depends(get_current_user)):
     database = db.get_db()
     r = redis_client.get_redis()
-    recent_key = f"user:{current_user.id}:recent_notes"
+    recent_key = f"{settings.REDIS_KEY_PREFIX}user:{current_user.id}:recent_notes"
     
     # get recently viewed note IDs from redis list
     recent_note_ids = await r.lrange(recent_key, 0, -1)
@@ -216,8 +217,8 @@ async def get_similar_notes(note_id: str, current_user: User = Depends(get_curre
     if not driver:
         return []
         
-    query = """
-    MATCH p = (n:Note {id: $note_id})-[*1..2]-(similar:Note)
+    query = f"""
+    MATCH p = (n:{settings.NEO4J_LABEL_PREFIX}Note {{id: $note_id}})-[*1..2]-(similar:{settings.NEO4J_LABEL_PREFIX}Note)
     WHERE similar.id <> $note_id AND similar.owner_id = $owner_id
     WITH similar, min(length(p)) AS distance, count(p) AS paths
     ORDER BY paths DESC, distance ASC
@@ -260,8 +261,8 @@ async def get_similar_notes(note_id: str, current_user: User = Depends(get_curre
 async def read_note(note_id: str, current_user: User = Depends(get_current_user)):
     database = db.get_db()
     r = redis_client.get_redis()
-    cache_key = f"note:{note_id}"
-    recent_key = f"user:{current_user.id}:recent_notes"
+    cache_key = f"{settings.REDIS_KEY_PREFIX}note:{note_id}"
+    recent_key = f"{settings.REDIS_KEY_PREFIX}user:{current_user.id}:recent_notes"
     
     # Track recently viewed notes (push to list)
     await r.lrem(recent_key, 0, note_id)  # Remove if exists to push to front
@@ -310,15 +311,15 @@ async def create_note(note: NoteCreate, current_user: User = Depends(get_current
             "tags": getattr(note, "tags", [])
         }
         try:
-            await es_client.index(index="notes", id=note_id_str, document=es_doc)
+            await es_client.index(index=f"{settings.ES_INDEX_PREFIX}notes", id=note_id_str, document=es_doc)
         except Exception as e:
             print(f"ES index failed: {e}")
     
     # Create Note in Neo4j
     driver = neo4j_db.get_driver()
     if driver:
-        query = """
-        MERGE (n:Note {id: $note_id})
+        query = f"""
+        MERGE (n:{settings.NEO4J_LABEL_PREFIX}Note {{id: $note_id}})
         SET n.title = $title, n.owner_id = $owner_id
         """
         try:
@@ -363,14 +364,14 @@ async def update_note(
             "tags": getattr(note, "tags", [])
         }
         try:
-            await es_client.update(index="notes", id=note_id, doc=es_doc, doc_as_upsert=True)
+            await es_client.update(index=f"{settings.ES_INDEX_PREFIX}notes", id=note_id, doc=es_doc, doc_as_upsert=True)
         except Exception as e:
             print(f"ES update failed: {e}")
     
     # Update Note title in Neo4j
     driver = neo4j_db.get_driver()
     if driver:
-        query = "MATCH (n:Note {id: $note_id}) SET n.title = $title"
+        query = f"MATCH (n:{settings.NEO4J_LABEL_PREFIX}Note {{id: $note_id}}) SET n.title = $title"
         try:
             async with driver.session() as session:
                 await session.run(query, note_id=note_id, title=note.title)
@@ -379,8 +380,8 @@ async def update_note(
     
     # Invalidate caches
     r = redis_client.get_redis()
-    await r.delete(f"note:{note_id}")
-    await r.delete(f"user:{current_user.id}:recommendations")
+    await r.delete(f"{settings.REDIS_KEY_PREFIX}note:{note_id}")
+    await r.delete(f"{settings.REDIS_KEY_PREFIX}user:{current_user.id}:recommendations")
     
     return await _populate_links(database, updated)
 
@@ -403,14 +404,14 @@ async def delete_note(note_id: str, current_user: User = Depends(get_current_use
     es_client = elasticsearch_db.get_client()
     if es_client:
         try:
-            await es_client.delete(index="notes", id=note_id)
+            await es_client.delete(index=f"{settings.ES_INDEX_PREFIX}notes", id=note_id)
         except Exception as e:
             print(f"ES delete failed: {e}")
     
     # Detach Delete Note in Neo4j
     driver = neo4j_db.get_driver()
     if driver:
-        query = "MATCH (n:Note {id: $note_id}) DETACH DELETE n"
+        query = f"MATCH (n:{settings.NEO4J_LABEL_PREFIX}Note {{id: $note_id}}) DETACH DELETE n"
         try:
             async with driver.session() as session:
                 await session.run(query, note_id=note_id)
@@ -419,8 +420,8 @@ async def delete_note(note_id: str, current_user: User = Depends(get_current_use
     
     # Invalidate caches
     r = redis_client.get_redis()
-    await r.delete(f"note:{note_id}")
-    await r.delete(f"user:{current_user.id}:recommendations")
+    await r.delete(f"{settings.REDIS_KEY_PREFIX}note:{note_id}")
+    await r.delete(f"{settings.REDIS_KEY_PREFIX}user:{current_user.id}:recommendations")
     
     return None
 
@@ -467,9 +468,9 @@ async def link_notes(
     if driver:
         # Enforce unidirection lexicographical edge to stop duplicate path blowups in Neo4j
         n_ids = sorted([note_id, target_id])
-        query = """
-        MATCH (a:Note {id: $n1})
-        MATCH (b:Note {id: $n2})
+        query = f"""
+        MATCH (a:{settings.NEO4J_LABEL_PREFIX}Note {{id: $n1}})
+        MATCH (b:{settings.NEO4J_LABEL_PREFIX}Note {{id: $n2}})
         MERGE (a)-[:RELATED_TO]->(b)
         """
         try:
@@ -480,7 +481,7 @@ async def link_notes(
     
     # Invalidate caches for both notes and recommendations
     r = redis_client.get_redis()
-    await r.delete(f"note:{note_id}", f"note:{target_id}", f"user:{current_user.id}:recommendations")
+    await r.delete(f"{settings.REDIS_KEY_PREFIX}note:{note_id}", f"{settings.REDIS_KEY_PREFIX}note:{target_id}", f"{settings.REDIS_KEY_PREFIX}user:{current_user.id}:recommendations")
     
     return await _populate_links(database, updated)
 
@@ -520,8 +521,8 @@ async def unlink_notes(
     driver = neo4j_db.get_driver()
     if driver:
         n_ids = sorted([note_id, target_id])
-        query = """
-        MATCH (a:Note {id: $n1})-[r:RELATED_TO]-(b:Note {id: $n2})
+        query = f"""
+        MATCH (a:{settings.NEO4J_LABEL_PREFIX}Note {{id: $n1}})-[r:RELATED_TO]-(b:{settings.NEO4J_LABEL_PREFIX}Note {{id: $n2}})
         DELETE r
         """
         try:
@@ -532,6 +533,6 @@ async def unlink_notes(
     
     # Invalidate caches for both notes and recommendations
     r = redis_client.get_redis()
-    await r.delete(f"note:{note_id}", f"note:{target_id}", f"user:{current_user.id}:recommendations")
+    await r.delete(f"{settings.REDIS_KEY_PREFIX}note:{note_id}", f"{settings.REDIS_KEY_PREFIX}note:{target_id}", f"{settings.REDIS_KEY_PREFIX}user:{current_user.id}:recommendations")
     
     return await _populate_links(database, updated)

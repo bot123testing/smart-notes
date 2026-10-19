@@ -12,6 +12,16 @@
 .vs/
 
 # ====================
+# Global / Python
+# ====================
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+uploads/
+
+# ====================
 # Backend (Python / FastAPI)
 # ====================
 backend/.env
