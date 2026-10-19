@@ -160,6 +160,7 @@ export default function Home() {
   const [editTags, setEditTags] = useState([]);
   const [saving, setSaving] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
+  const [relatedContent, setRelatedContent] = useState([]);
 
   const searchDebounce = useRef(null);
 
@@ -210,6 +211,14 @@ export default function Home() {
       const linkedIds = fresh.linked_note_ids || [];
       setSuggestions((fresh.suggested_links || []).filter(s => !linkedIds.includes(s.note_id)));
     } catch { /* use stale data */ }
+
+    // Fetch hybrid cross-source related content
+    try {
+      const relRes = await api.get(`/notes/${note.id}/related_content`);
+      setRelatedContent(relRes.data.items || []);
+    } catch {
+      setRelatedContent([]);
+    }
   };
 
   /* ── Save note ── */
@@ -329,8 +338,10 @@ export default function Home() {
             <span style={s.logoText}>Smart Notes+</span>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
+            <a href="/documents" style={s.navLink} title="PDF Documents & Ingestion">📚</a>
+            <a href="/study-path" style={s.navLink} title="Study Path Builder">🗺️</a>
+            <a href="/concept-graph" style={s.navLink} title="Concept Graph">🧠</a>
             <a href="/analytics" style={s.navLink} title="Analytics">📉</a>
-            <a href="/graph" style={s.navLink} title="Graph">🧠</a>
             <button onClick={toggleTheme} style={s.navLink} title={isDark ? 'Switch to Light' : 'Switch to Dark'}>
               {isDark ? '☀️' : '🌙'}
             </button>
@@ -608,6 +619,62 @@ export default function Home() {
                       onLink={handleLinkSuggestion}
                       onDismiss={id => setSuggestions(prev => prev.filter(s => s.note_id !== id))}
                     />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Cross-Source Related Study Content */}
+            {relatedContent.length > 0 && (
+              <div style={s.section}>
+                <div style={s.sectionTitle}>📚 Cross-Linked Study Content ({relatedContent.length})</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {relatedContent.map((item) => (
+                    <div
+                      key={item.id}
+                      style={{
+                        background: 'var(--surface-hi)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 8,
+                        padding: '10px 14px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: item.source_type === 'document' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(245, 158, 11, 0.2)', color: item.source_type === 'document' ? '#60a5fa' : '#fbbf24' }}>
+                            {item.source_type === 'document' ? '📄 PDF' : '📝 Note'}
+                          </span>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
+                            {item.title}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+                          💡 {item.similarity_reason}
+                        </div>
+                      </div>
+
+                      {item.source_type === 'document' ? (
+                        <a
+                          href="/documents"
+                          style={{ fontSize: 12, color: 'var(--primary)', fontWeight: 600, textDecoration: 'none' }}
+                        >
+                          View PDF →
+                        </a>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            const n = notes.find(n => n.id === item.id);
+                            if (n) selectNote(n);
+                          }}
+                          style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          Open Note →
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
