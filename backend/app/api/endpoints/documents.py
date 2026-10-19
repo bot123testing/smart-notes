@@ -14,6 +14,8 @@ from app.db.neo4j_db import neo4j_db
 from app.core.config import settings
 from app.services.document_service import process_and_save_upload, UPLOAD_DIR
 from app.services.pipeline_service import run_document_pipeline
+from app.models.study_path import RelatedContentResponse
+from app.services.study_path_service import get_related_content
 
 router = APIRouter()
 
@@ -177,3 +179,24 @@ async def delete_document(document_id: str, current_user: User = Depends(get_cur
     # 7. Delete Document record
     await database["documents"].delete_one({"_id": oid})
     return None
+
+
+@router.get("/{document_id}/related", response_model=RelatedContentResponse)
+async def get_document_related_content(
+    document_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Returns related documents and notes sharing concepts and/or text similarity with this document.
+    """
+    database = db.get_db()
+    oid = _to_oid(document_id)
+    doc = await database["documents"].find_one({"_id": oid, "owner_id": current_user.id})
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document '{document_id}' not found."
+        )
+
+    return await get_related_content(document_id, "document", current_user.id, database)
+

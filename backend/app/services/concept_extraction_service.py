@@ -21,9 +21,10 @@ FIXTURES_DIR.mkdir(parents=True, exist_ok=True)
 _LAST_CALL_TIMES = []
 
 def normalize_concept_name(name: str) -> str:
-    """Normalizes concept string for deduplication (lowercase, stripped punctuation)."""
-    clean = re.sub(r'[^a-zA-Z0-9\s]', '', name.lower()).strip()
-    clean = re.sub(r'\s+', ' ', clean)
+    """Normalizes concept string for deduplication (lowercase, stripped punctuation, unified snake_case)."""
+    clean = name.replace("_", " ").replace("-", " ")
+    clean = re.sub(r'[^a-zA-Z0-9\s]', '', clean.lower()).strip()
+    clean = re.sub(r'\s+', '_', clean)
     return clean
 
 async def acquire_gemini_rate_slot():

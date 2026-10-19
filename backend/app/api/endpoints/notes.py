@@ -18,6 +18,8 @@ from app.services.metrics_service import compute_and_store_metrics
 from app.services.recommendation_service import generate_hybrid_recommendations
 from app.services import nlp_service
 from app.services.pipeline_service import debounce_and_extract_note_concepts
+from app.models.study_path import RelatedContentResponse
+from app.services.study_path_service import get_related_content
 from datetime import datetime, timezone
 from bson import ObjectId
 
@@ -257,6 +259,19 @@ async def get_similar_notes(note_id: str, current_user: User = Depends(get_curre
             ordered_notes.append(await _populate_links(database, doc))
             
     return ordered_notes
+
+
+@router.get("/{note_id}/related_content", response_model=RelatedContentResponse)
+async def get_note_related_content(
+    note_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Returns related documents and notes sharing concepts and/or text similarity with this note.
+    """
+    database = db.get_db()
+    await _get_user_note(database, note_id, current_user.id)
+    return await get_related_content(note_id, "note", current_user.id, database)
 
 
 @router.get("/{note_id}", response_model=Note)

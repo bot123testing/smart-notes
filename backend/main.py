@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings, verify_namespace_guard
-from app.api.endpoints import auth, notes, activity, graph, search, ai, documents
+from app.api.endpoints import auth, notes, activity, graph, search, ai, documents, study_paths
 from app.db.mongodb import db
 from app.db.redis import redis_client
 from app.db.neo4j_db import neo4j_db
@@ -57,5 +57,6 @@ app.include_router(activity.router, prefix="/api/activity", tags=["activity"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
+app.include_router(study_paths.router, prefix="/api/study-paths", tags=["study-paths"])
 
 
