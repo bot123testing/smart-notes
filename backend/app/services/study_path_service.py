@@ -230,11 +230,39 @@ async def generate_study_path(
         {"owner_id": owner_id, "normalized_name": {"$in": list(nodes)}}
     ).to_list(length=2000)
 
+    # Resolve source titles for rich study path deep linking
+    doc_oids = []
+    note_oids = []
+    for m in mentions_docs:
+        sid = m.get("source_id")
+        if sid and ObjectId.is_valid(sid):
+            if m.get("source_type") == "document":
+                doc_oids.append(ObjectId(sid))
+            elif m.get("source_type") == "note":
+                note_oids.append(ObjectId(sid))
+
+    doc_titles = {}
+    if doc_oids:
+        docs = await database["documents"].find({"_id": {"$in": doc_oids}}, {"filename": 1, "title": 1}).to_list(length=1000)
+        for d in docs:
+            doc_titles[str(d["_id"])] = d.get("filename") or d.get("title") or "PDF Document"
+
+    note_titles = {}
+    if note_oids:
+        notes = await database["notes"].find({"_id": {"$in": note_oids}}, {"title": 1}).to_list(length=1000)
+        for n in notes:
+            note_titles[str(n["_id"])] = n.get("title") or "Text Note"
+
     mentions_map = defaultdict(list)
     for m in mentions_docs:
+        sid = m["source_id"]
+        stype = m.get("source_type", "document")
+        title = doc_titles.get(sid, "PDF Document") if stype == "document" else note_titles.get(sid, "Text Note")
         mentions_map[m["normalized_name"]].append({
-            "source_id": m["source_id"],
-            "source_type": m["source_type"],
+            "source_id": sid,
+            "source_type": stype,
+            "title": title,
+            "chunk_id": m.get("chunk_id"),
             "snippet": m.get("snippet", "")
         })
 

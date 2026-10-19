@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from google import genai
 from google.genai import types
@@ -10,13 +11,76 @@ def get_client() -> genai.Client | None:
         return None
     return genai.Client(api_key=api_key)
 
+KEYWORD_TAG_MAP = {
+    "cloud computing": "cloud-computing",
+    "virtualization": "virtualization",
+    "hypervisor": "hypervisor",
+    "virtual machine": "virtual-machines",
+    "virtual machines": "virtual-machines",
+    "containerization": "containers",
+    "iaas": "iaas",
+    "paas": "paas",
+    "saas": "saas",
+    "public cloud": "public-cloud",
+    "private cloud": "private-cloud",
+    "hybrid cloud": "hybrid-cloud",
+    "distributed systems": "distributed-systems",
+    "consensus": "consensus",
+    "leader election": "leader-election",
+    "raft": "raft",
+    "paxos": "paxos",
+    "byzantine": "byzantine-fault-tolerance",
+    "caching": "caching",
+    "redis": "redis",
+    "database": "database",
+    "sharding": "sharding",
+    "replication": "replication",
+    "cybersecurity": "cybersecurity",
+    "security": "security",
+    "encryption": "encryption",
+    "authentication": "authentication",
+    "authorization": "authorization",
+    "scalability": "scalability"
+}
+
+TAG_STOPWORDS = {
+    "their", "these", "those", "which", "modern", "transformed", "several", "include",
+    "including", "approach", "technology", "system", "program", "process", "using",
+    "between", "another", "important", "different", "various", "about", "after", "before",
+    "where", "there", "because", "while", "being", "under", "common", "allows", "enables",
+    "requires", "however", "through", "without", "example", "notes", "title", "content"
+}
+
+def _fallback_magic_tags(title: str, content: str) -> list[str]:
+    combined = f"{title} {content}".lower()
+    tags = []
+    
+    # 1. Match against known technical keyword tags
+    for kw, tag in KEYWORD_TAG_MAP.items():
+        if re.search(r'\b' + re.escape(kw) + r'\b', combined):
+            if tag not in tags:
+                tags.append(tag)
+        if len(tags) >= 5:
+            break
+
+    # 2. If fewer than 3 tags found, extract prominent words
+    if len(tags) < 3:
+        words = re.findall(r'[a-zA-Z]{4,}', combined)
+        for w in words:
+            if w not in TAG_STOPWORDS and w not in tags:
+                tags.append(w)
+            if len(tags) >= 4:
+                break
+
+    return tags[:5]
+
 async def auto_tag_note(title: str, content: str) -> list[str]:
     """
-    Uses Gemini 2.5 Flash Lite to intelligently extract 3-5 relevant tags.
+    Uses Gemini 2.5 Flash to extract 3-5 relevant tags, with intelligent deterministic fallback.
     """
     client = get_client()
     if not client:
-        return []
+        return _fallback_magic_tags(title, content)
 
     prompt = f"""
     You are a precision taxonomy AI classification system.
@@ -64,7 +128,6 @@ async def auto_tag_note(title: str, content: str) -> list[str]:
         tags = json.loads(text)
         
         if isinstance(tags, list):
-            # Sanitize: lowercase, alphanumeric
             clean_tags = []
             for t in tags:
                 sanitized = "".join(c for c in str(t).lower() if c.isalnum() or c == '-')
@@ -72,7 +135,6 @@ async def auto_tag_note(title: str, content: str) -> list[str]:
                     clean_tags.append(sanitized)
             final_tags = clean_tags[:5]
             
-            # Record fixture during live run
             try:
                 with open(fixture_file, "w", encoding="utf-8") as f:
                     json.dump(final_tags, f, indent=2)
@@ -81,11 +143,7 @@ async def auto_tag_note(title: str, content: str) -> list[str]:
 
             return final_tags
             
-        return []
+        return _fallback_magic_tags(title, content)
     except Exception as e:
-        print(f"[AI Service] Error generating tags: {e}")
-        # In replay mode with no fixture, return sensible deterministic fallback
-        if settings.GEMINI_MODE == "replay":
-            words = [w.lower() for w in f"{title} {content}".split() if len(w) > 4]
-            return list(dict.fromkeys(words))[:3]
-        return []
+        print(f"[AI Service] Error generating tags: {e}. Using deterministic fallback.")
+        return _fallback_magic_tags(title, content)

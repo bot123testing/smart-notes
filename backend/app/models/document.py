@@ -28,6 +28,7 @@ class DocumentResponse(BaseModel):
     status: DocumentStatus
     error_message: Optional[str] = None
     chunk_count: int = 0
+    tags: List[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

@@ -4,7 +4,7 @@ from typing import List
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.user import User
 from app.models.document import DocumentResponse, DocumentDetailResponse, ChunkResponse, ConceptItem
@@ -20,6 +20,9 @@ from app.services.study_path_service import get_related_content
 
 router = APIRouter()
 
+class UpdateDocumentTagsRequest(BaseModel):
+    tags: List[str] = Field(default_factory=list)
+
 def _to_doc_response(doc: dict) -> DocumentResponse:
     return DocumentResponse(
         id=str(doc["_id"]),
@@ -31,6 +34,7 @@ def _to_doc_response(doc: dict) -> DocumentResponse:
         status=doc["status"],
         error_message=doc.get("error_message"),
         chunk_count=doc.get("chunk_count", 0),
+        tags=doc.get("tags", []),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"]
     )
@@ -170,6 +174,36 @@ async def download_document_file(document_id: str, current_user: User = Depends(
         filename=doc["filename"],
         media_type="application/pdf"
     )
+
+@router.put("/{document_id}/tags", response_model=DocumentResponse)
+async def update_document_tags(
+    document_id: str,
+    payload: UpdateDocumentTagsRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Updates user-editable tags on a PDF document."""
+    try:
+        oid = ObjectId(document_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid document ID format")
+
+    database = db.get_db()
+    clean_tags = []
+    for t in payload.tags:
+        s_tag = t.strip().lower()
+        if s_tag and s_tag not in clean_tags:
+            clean_tags.append(s_tag)
+
+    now = datetime.now(timezone.utc)
+    res = await database["documents"].find_one_and_update(
+        {"_id": oid, "owner_id": current_user.id},
+        {"$set": {"tags": clean_tags, "updated_at": now}},
+        return_document=True
+    )
+    if not res:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return _to_doc_response(res)
 
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(document_id: str, current_user: User = Depends(get_current_user)):

@@ -262,15 +262,26 @@ function StudyPathContent() {
                               )}
                             </div>
 
-                            <button
-                              onClick={() => handleToggleKnown(step.concept_id, !step.is_known)}
-                              style={{
-                                ...styles.toggleBtn,
-                                ...(step.is_known ? styles.toggleBtnKnown : {}),
-                              }}
-                            >
-                              {step.is_known ? 'Unmark' : 'Mark Mastered ✓'}
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              {step.related_sources?.length > 0 && (
+                                <a
+                                  href={`/?${step.related_sources[0].source_type === 'document' ? 'doc' : 'note'}=${step.related_sources[0].source_id}&concept=${encodeURIComponent(step.name)}&snippet=${encodeURIComponent(step.related_sources[0].snippet || '')}`}
+                                  style={styles.studyInDocBtn}
+                                  title={`Study "${step.name}" in source ${step.related_sources[0].source_type}`}
+                                >
+                                  📖 Study in {step.related_sources[0].source_type === 'document' ? 'PDF' : 'Note'} →
+                                </a>
+                              )}
+                              <button
+                                onClick={() => handleToggleKnown(step.concept_id, !step.is_known)}
+                                style={{
+                                  ...styles.toggleBtn,
+                                  ...(step.is_known ? styles.toggleBtnKnown : {}),
+                                }}
+                              >
+                                {step.is_known ? 'Unmark' : 'Mark Mastered ✓'}
+                              </button>
+                            </div>
                           </div>
 
                           <p style={styles.stepDesc}>
@@ -298,18 +309,27 @@ function StudyPathContent() {
                             )}
                           </div>
 
-                          {/* Related Sources */}
+                          {/* Related Sources (Clickable Deep-Links to PDF Viewer with Highlighting) */}
                           {step.related_sources?.length > 0 && (
                             <div style={styles.sourcesBox}>
-                              <span style={styles.sourcesTitle}>Study Materials:</span>
+                              <span style={styles.sourcesTitle}>Study Materials (Click to read & highlight):</span>
                               <div style={styles.sourcesGrid}>
                                 {step.related_sources.map((src, i) => (
-                                  <div key={i} style={styles.sourcePill}>
+                                  <a
+                                    key={i}
+                                    href={`/?${src.source_type === 'document' ? 'doc' : 'note'}=${src.source_id}&concept=${encodeURIComponent(step.name)}&chunk=${src.chunk_id || ''}&snippet=${encodeURIComponent(src.snippet || '')}`}
+                                    style={styles.sourcePill}
+                                    title={`Open ${src.title || (src.source_type === 'document' ? 'PDF' : 'Note')} and highlight "${step.name}"`}
+                                  >
                                     <span>{src.source_type === 'document' ? '📄' : '📝'}</span>
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                      {src.snippet ? `"...${src.snippet.slice(0, 60)}..."` : `${src.source_type} #${src.source_id.slice(-6)}`}
+                                    <span style={{ fontWeight: 600, color: '#38bdf8' }}>
+                                      {src.title ? (src.title.length > 25 ? `${src.title.slice(0, 25)}…` : src.title) : `${src.source_type.toUpperCase()} #${src.source_id.slice(-4)}`}:
                                     </span>
-                                  </div>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {src.snippet ? `"${src.snippet.slice(0, 40)}…"` : 'View text'}
+                                    </span>
+                                    <span style={{ fontSize: 10, color: 'var(--primary)', marginLeft: 2 }}>↗</span>
+                                  </a>
                                 ))}
                               </div>
                             </div>
@@ -537,7 +557,9 @@ const styles = {
     fontSize: 14,
     color: 'var(--text-secondary)',
     cursor: 'pointer',
-    borderBottom: '2px solid transparent',
+    borderBottomWidth: 2,
+    borderBottomStyle: 'solid',
+    borderBottomColor: 'transparent',
     transition: 'all 0.15s ease',
   },
   tabBtnActive: {
@@ -747,16 +769,34 @@ const styles = {
     flexWrap: 'wrap',
   },
   sourcePill: {
-    display: 'flex',
+    display: 'inline-flex',
     alignItems: 'center',
     gap: 6,
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
+    background: 'rgba(28, 28, 35, 0.9)',
+    border: '1px solid rgba(56, 189, 248, 0.3)',
     borderRadius: 6,
-    padding: '3px 8px',
+    padding: '4px 10px',
     fontSize: 11,
     color: 'var(--text-secondary)',
-    maxWidth: 240,
+    maxWidth: 320,
+    textDecoration: 'none',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+  },
+  studyInDocBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: '5px 12px',
+    borderRadius: 6,
+    background: 'rgba(56, 189, 248, 0.12)',
+    border: '1px solid rgba(56, 189, 248, 0.4)',
+    color: '#38bdf8',
+    fontSize: 12,
+    fontWeight: 600,
+    textDecoration: 'none',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
   },
   readinessHero: {
     background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(16, 185, 129, 0.05))',

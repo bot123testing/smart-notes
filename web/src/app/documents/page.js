@@ -317,6 +317,16 @@ export default function DocumentsPage() {
                     <span>💾 {(doc.file_size_bytes / (1024 * 1024)).toFixed(2)} MB</span>
                   </div>
 
+                  {doc.tags?.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                      {doc.tags.map((t) => (
+                        <span key={t} style={{ fontSize: 11, background: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8', padding: '2px 8px', borderRadius: 12, border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                          #{t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   {doc.status !== 'ready' && doc.status !== 'failed' && (
                     <div style={styles.processingBarWrap}>
                       <div style={styles.processingBarAnimation} />
@@ -858,7 +868,9 @@ const styles = {
     fontSize: 13,
     color: 'var(--text-secondary)',
     cursor: 'pointer',
-    borderBottom: '2px solid transparent',
+    borderBottomWidth: 2,
+    borderBottomStyle: 'solid',
+    borderBottomColor: 'transparent',
   },
   tabBtnActive: {
     color: 'var(--primary)',

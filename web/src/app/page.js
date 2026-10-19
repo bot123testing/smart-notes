@@ -107,6 +107,36 @@ function UnifiedListItem({ item, isSelected, onClick }) {
   );
 }
 
+/* ── Passage Concept Highlighting Helper ─────────────────────────── */
+function renderHighlightedText(text, term) {
+  if (!text) return '';
+  if (!term || !term.trim()) return text;
+  const cleanTerm = term.trim();
+  const escaped = cleanTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escaped})`, 'gi');
+  const parts = text.split(regex);
+  if (parts.length <= 1) return text;
+  return parts.map((part, i) =>
+    part.toLowerCase() === cleanTerm.toLowerCase() ? (
+      <mark
+        key={i}
+        style={{
+          background: 'rgba(245, 158, 11, 0.35)',
+          color: '#fbbf24',
+          padding: '2px 5px',
+          borderRadius: 4,
+          fontWeight: 700,
+          border: '1px solid rgba(245, 158, 11, 0.5)'
+        }}
+      >
+        {part}
+      </mark>
+    ) : (
+      part
+    )
+  );
+}
+
 /* ── Main Component ─────────────────────────────────────────────────────── */
 export default function Home() {
   const { userToken, loading: authLoading, logout } = useAuth();
@@ -172,6 +202,16 @@ export default function Home() {
   const [loadingDocDetails, setLoadingDocDetails] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
   const [docActiveTab, setDocActiveTab] = useState('preview'); // 'preview' | 'concepts' | 'chunks'
+
+  // PDF Document tags state
+  const [docTags, setDocTags] = useState([]);
+  const [docTagInput, setDocTagInput] = useState('');
+  const [generatingDocTags, setGeneratingDocTags] = useState(false);
+
+  // Deep-linking study focus state
+  const [studyConcept, setStudyConcept] = useState('');
+  const [studySnippet, setStudySnippet] = useState('');
+  const [studyChunkId, setStudyChunkId] = useState('');
 
   // Cross-Source Connections (Text-Text, Text-PDF, PDF-PDF)
   const [relatedContent, setRelatedContent] = useState([]);
@@ -259,7 +299,7 @@ export default function Home() {
   };
 
   // Select a PDF Document
-  const selectDocument = async (doc) => {
+  const selectDocument = async (doc, initialTab = 'preview') => {
     if (pdfBlobUrl) {
       window.URL.revokeObjectURL(pdfBlobUrl);
       setPdfBlobUrl(null);
@@ -269,24 +309,30 @@ export default function Home() {
     const docItem = {
       id: doc.id,
       itemType: 'document',
-      title: doc.filename,
+      title: doc.filename || doc.title,
       filename: doc.filename,
       page_count: doc.page_count,
       chunk_count: doc.chunk_count,
       file_size_bytes: doc.file_size_bytes,
       status: doc.status,
+      tags: doc.tags || [],
       updated_at: doc.updated_at,
       raw: doc,
       linked_count: doc.linked_ids?.length || 0,
     };
     setSelected(docItem);
+    setDocTags(doc.tags || []);
+    setDocTagInput('');
     setLoadingDocDetails(true);
-    setDocActiveTab('preview');
+    setDocActiveTab(initialTab);
 
-    // Fetch enriched document details (chunks, concepts, linked_items)
+    // Fetch enriched document details (chunks, concepts, linked_items, tags)
     try {
       const res = await api.get(`/documents/${doc.id}`);
       setSelectedDocDetails(res.data);
+      if (res.data?.tags) {
+        setDocTags(res.data.tags);
+      }
     } catch (err) {
       console.error('Failed to fetch doc details:', err);
     } finally {
@@ -498,6 +544,61 @@ export default function Home() {
     }
   };
 
+  // Document Tag Helpers (Issue 2)
+  const addDocTag = async (input, setInput, tags, setTags) => {
+    const raw = input.trim().toLowerCase().replace(/^#/, '');
+    if (raw && !tags.includes(raw)) {
+      const nextTags = [...tags, raw];
+      setTags(nextTags);
+      setInput('');
+      if (selected && selected.itemType === 'document') {
+        try {
+          await api.put(`/documents/${selected.id}/tags`, { tags: nextTags });
+          setSelected(prev => prev ? { ...prev, tags: nextTags } : prev);
+          setDocuments(prev => prev.map(d => d.id === selected.id ? { ...d, tags: nextTags } : d));
+        } catch (e) {
+          console.error('Failed to save document tag:', e);
+        }
+      }
+    }
+  };
+
+  const removeDocTag = async (tagToRemove, setTags) => {
+    const nextTags = docTags.filter(t => t !== tagToRemove);
+    setTags(nextTags);
+    if (selected && selected.itemType === 'document') {
+      try {
+        await api.put(`/documents/${selected.id}/tags`, { tags: nextTags });
+        setSelected(prev => prev ? { ...prev, tags: nextTags } : prev);
+        setDocuments(prev => prev.map(d => d.id === selected.id ? { ...d, tags: nextTags } : d));
+      } catch (e) {
+        console.error('Failed to remove document tag:', e);
+      }
+    }
+  };
+
+  const generateDocMagicTags = async () => {
+    if (!selected) return;
+    setGeneratingDocTags(true);
+    try {
+      const chunkSample = selectedDocDetails?.chunks?.map(c => c.text).slice(0, 3).join(' ') || '';
+      const res = await api.post('/ai/magic-tags', {
+        title: selected.filename || selected.title || '',
+        content: chunkSample.slice(0, 2000)
+      });
+      const generated = res.data || [];
+      const merged = Array.from(new Set([...docTags, ...generated]));
+      setDocTags(merged);
+      await api.put(`/documents/${selected.id}/tags`, { tags: merged });
+      setSelected(prev => prev ? { ...prev, tags: merged } : prev);
+      setDocuments(prev => prev.map(d => d.id === selected.id ? { ...d, tags: merged } : d));
+    } catch (err) {
+      console.error('Failed to generate document magic tags:', err);
+    } finally {
+      setGeneratingDocTags(false);
+    }
+  };
+
   // Aggregate Unified List
   const unifiedItems = [
     ...notes.map(n => ({
@@ -519,6 +620,7 @@ export default function Home() {
       chunk_count: d.chunk_count,
       file_size_bytes: d.file_size_bytes,
       status: d.status,
+      tags: d.tags || [],
       linked_count: d.linked_ids?.length || 0,
       updated_at: d.updated_at,
       raw: d,
@@ -538,6 +640,37 @@ export default function Home() {
     }
     return true;
   });
+
+  // Handle URL Deep-Linking (e.g. from Study Path Builder)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const docId = params.get('doc');
+    const noteId = params.get('note');
+    const concept = params.get('concept');
+    const snippet = params.get('snippet');
+    const chunkId = params.get('chunk');
+
+    if (concept) setStudyConcept(concept);
+    if (snippet) setStudySnippet(snippet);
+    if (chunkId) setStudyChunkId(chunkId);
+
+    if (docId) {
+      const matchDoc = documents.find(d => d.id === docId);
+      if (matchDoc) {
+        selectDocument(matchDoc, 'chunks');
+      } else if (documents.length > 0) {
+        api.get(`/documents/${docId}`).then(res => {
+          if (res.data) selectDocument(res.data, 'chunks');
+        }).catch(err => console.error('Failed to open deep-linked doc:', err));
+      }
+    } else if (noteId) {
+      const matchNote = notes.find(n => n.id === noteId);
+      if (matchNote) {
+        selectNote(matchNote);
+      }
+    }
+  }, [documents.length, notes.length]);
 
   if (authLoading || !userToken) {
     return (
@@ -956,6 +1089,39 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Document Tags (Issue 2) */}
+            <div style={s.tagRow}>
+              <div style={s.tagFieldHeader}>
+                <span style={s.tagFieldLabel}>TAGS</span>
+                <button
+                  style={s.sparkBtn}
+                  onClick={generateDocMagicTags}
+                  disabled={generatingDocTags}
+                  title="Generate tags with AI from document content"
+                >
+                  {generatingDocTags ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <SparkIcon />}
+                  Magic Tags
+                </button>
+              </div>
+              <div style={s.tagList}>
+                {docTags.map(t => (
+                  <TagChip key={t} tag={t} onRemove={tag => removeDocTag(tag, setDocTags)} />
+                ))}
+                <input
+                  style={s.tagInput}
+                  value={docTagInput}
+                  onChange={e => setDocTagInput(e.target.value)}
+                  placeholder={docTags.length === 0 ? 'Type a tag and press Enter…' : ''}
+                  onBlur={() => addDocTag(docTagInput, setDocTagInput, docTags, setDocTags)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); addDocTag(docTagInput, setDocTagInput, docTags, setDocTags); }
+                    if (e.key === ',') { e.preventDefault(); addDocTag(docTagInput, setDocTagInput, docTags, setDocTags); }
+                    if (e.key === 'Backspace' && !docTagInput && docTags.length) removeDocTag(docTags[docTags.length - 1], setDocTags);
+                  }}
+                />
+              </div>
+            </div>
+
             {/* Document View Sub-Tabs */}
             <div style={s.subTabBar}>
               <button
@@ -1010,9 +1176,21 @@ export default function Home() {
                         <div key={c.normalized_name} style={s.conceptCardMini}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                             <strong style={{ fontSize: 13, color: '#f9fafb' }}>{c.name}</strong>
-                            <Link href={`/study-path?concept=${encodeURIComponent(c.normalized_name)}`} style={s.studyPathLinkMini}>
-                              🗺️ Path
-                            </Link>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                              <button
+                                onClick={() => {
+                                  setStudyConcept(c.name);
+                                  setDocActiveTab('chunks');
+                                }}
+                                style={s.locateChunkBtn}
+                                title="Locate passages for this concept in the PDF chunks"
+                              >
+                                🔍 In Text
+                              </button>
+                              <Link href={`/study-path?concept=${encodeURIComponent(c.normalized_name)}`} style={s.studyPathLinkMini}>
+                                🗺️ Path
+                              </Link>
+                            </div>
                           </div>
                           <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
                             {c.description || 'Core concept from document.'}
@@ -1029,19 +1207,78 @@ export default function Home() {
                   <div style={s.infoBannerMini}>
                     💡 Partitioned semantic chunks (~400 words) for vector search, context retrieval, and concept mapping.
                   </div>
+
+                  {studyConcept && (
+                    <div style={s.studyFocusBanner}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 18 }}>🎯</span>
+                        <div>
+                          <strong style={{ color: '#38bdf8', fontSize: 13 }}>Focusing on Concept: "{studyConcept}"</strong>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                            Passages explaining this topic are highlighted in glowing amber below.
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        style={s.clearStudyBtn}
+                        onClick={() => { setStudyConcept(''); setStudySnippet(''); setStudyChunkId(''); }}
+                        title="Clear concept focus"
+                      >
+                        ✕ Clear Focus
+                      </button>
+                    </div>
+                  )}
+
                   {(!selectedDocDetails?.chunks || selectedDocDetails.chunks.length === 0) ? (
                     <p style={{ color: 'var(--text-tertiary)', padding: 12 }}>No chunks available.</p>
                   ) : (
-                    selectedDocDetails.chunks.map(ch => (
-                      <div key={ch.id} style={s.chunkCardMini}>
-                        <div style={{ fontSize: 11, color: 'var(--primary)', fontWeight: 700, marginBottom: 4 }}>
-                          Page {ch.page_number} • Chunk #{ch.chunk_index + 1} ({ch.token_count || ch.word_count || 0} words)
+                    selectedDocDetails.chunks.map(ch => {
+                      const matchesConcept = studyConcept && ch.text.toLowerCase().includes(studyConcept.toLowerCase());
+                      const matchesSnippet = studySnippet && ch.text.toLowerCase().includes(studySnippet.slice(0, 30).toLowerCase());
+                      const isHighlighted = matchesConcept || matchesSnippet || ch.id === studyChunkId;
+
+                      return (
+                        <div
+                          key={ch.id}
+                          id={`chunk-${ch.id}`}
+                          style={{
+                            ...s.chunkCardMini,
+                            ...(isHighlighted ? s.chunkCardHighlighted : {})
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <div style={{ fontSize: 11, color: isHighlighted ? '#38bdf8' : 'var(--primary)', fontWeight: 700 }}>
+                              Page {ch.page_number} • Chunk #{ch.chunk_index + 1} ({ch.token_count || ch.word_count || 0} words)
+                            </div>
+                            {isHighlighted && (
+                              <span style={s.highlightBadge}>
+                                ★ Target Concept
+                              </span>
+                            )}
+                          </div>
+                          <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                            {renderHighlightedText(ch.text, studyConcept || (studySnippet ? studySnippet.slice(0, 35) : ''))}
+                          </p>
+                          {ch.extracted_concepts?.length > 0 && (
+                            <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              {ch.extracted_concepts.map(ec => (
+                                <span
+                                  key={ec}
+                                  onClick={() => setStudyConcept(ec)}
+                                  style={{
+                                    ...s.chunkConceptTag,
+                                    ...(studyConcept && ec.toLowerCase() === studyConcept.toLowerCase() ? s.chunkConceptTagActive : {})
+                                  }}
+                                  title={`Focus on "${ec}"`}
+                                >
+                                  #{ec}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-                          {ch.text}
-                        </p>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               )}
@@ -1421,7 +1658,9 @@ const s = {
     fontSize: 13,
     color: 'var(--text-secondary)',
     cursor: 'pointer',
-    borderBottom: '2px solid transparent',
+    borderBottomWidth: 2,
+    borderBottomStyle: 'solid',
+    borderBottomColor: 'transparent',
   },
   subTabBtnActive: {
     color: 'var(--primary)',
@@ -1524,6 +1763,70 @@ const s = {
     cursor: 'pointer', color: 'var(--text)',
     fontSize: 13, fontFamily: 'inherit',
     transition: 'background 0.1s',
+  },
+
+  // Deep-linking study focus and passage highlighting styles (Issue 3)
+  studyFocusBanner: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(129, 140, 248, 0.1))',
+    border: '1px solid rgba(56, 189, 248, 0.4)',
+    borderRadius: 8,
+    padding: '10px 14px',
+    marginBottom: 8,
+  },
+  clearStudyBtn: {
+    background: 'rgba(255, 255, 255, 0.08)',
+    border: '1px solid var(--border)',
+    borderRadius: 6,
+    color: 'var(--text-secondary)',
+    fontSize: 11,
+    padding: '4px 10px',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  },
+  chunkCardHighlighted: {
+    border: '2px solid #38bdf8',
+    background: 'rgba(56, 189, 248, 0.05)',
+    boxShadow: '0 0 20px rgba(56, 189, 248, 0.25)',
+  },
+  highlightBadge: {
+    background: 'rgba(56, 189, 248, 0.2)',
+    color: '#38bdf8',
+    border: '1px solid rgba(56, 189, 248, 0.4)',
+    borderRadius: 4,
+    padding: '2px 8px',
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 0.5,
+  },
+  locateChunkBtn: {
+    background: 'rgba(56, 189, 248, 0.12)',
+    border: '1px solid rgba(56, 189, 248, 0.3)',
+    color: '#38bdf8',
+    borderRadius: 4,
+    padding: '2px 8px',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  },
+  chunkConceptTag: {
+    fontSize: 10,
+    color: 'var(--text-tertiary)',
+    background: 'var(--surface-hi)',
+    padding: '2px 6px',
+    borderRadius: 4,
+    cursor: 'pointer',
+    border: '1px solid var(--border)',
+    transition: 'all 0.15s ease',
+  },
+  chunkConceptTagActive: {
+    color: '#fbbf24',
+    background: 'rgba(245, 158, 11, 0.15)',
+    border: '1px solid rgba(245, 158, 11, 0.4)',
+    fontWeight: 700,
   },
 
   // Empty state
