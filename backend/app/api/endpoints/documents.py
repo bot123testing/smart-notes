@@ -1,0 +1,179 @@
+import os
+from pathlib import Path
+from typing import List
+from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, status
+from fastapi.responses import FileResponse
+
+from app.models.user import User
+from app.models.document import DocumentResponse
+from app.api.deps import get_current_user
+from app.db.mongodb import db
+from app.db.elasticsearch_db import elasticsearch_db
+from app.db.neo4j_db import neo4j_db
+from app.core.config import settings
+from app.services.document_service import process_and_save_upload, UPLOAD_DIR
+from app.services.pipeline_service import run_document_pipeline
+
+router = APIRouter()
+
+def _to_doc_response(doc: dict) -> DocumentResponse:
+    return DocumentResponse(
+        id=str(doc["_id"]),
+        owner_id=doc["owner_id"],
+        filename=doc["filename"],
+        file_size_bytes=doc["file_size_bytes"],
+        page_count=doc["page_count"],
+        file_sha256=doc["file_sha256"],
+        status=doc["status"],
+        error_message=doc.get("error_message"),
+        chunk_count=doc.get("chunk_count", 0),
+        created_at=doc["created_at"],
+        updated_at=doc["updated_at"]
+    )
+
+@router.post("/upload", response_model=DocumentResponse)
+async def upload_document(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Streaming PDF upload endpoint:
+      1. Verifies %PDF- magic bytes, size cap, page cap, and sha256 dedupe.
+      2. Streams directly to temp file and cleans up on any error.
+      3. Creates document record in MongoDB.
+      4. Spawns asynchronous extraction pipeline.
+    """
+    database = db.get_db()
+    doc_record = await process_and_save_upload(file, current_user.id, database)
+    
+    # Spawn background processing pipeline
+    background_tasks.add_task(run_document_pipeline, str(doc_record["_id"]), database)
+
+    return _to_doc_response(doc_record)
+
+@router.get("", response_model=List[DocumentResponse])
+async def list_documents(current_user: User = Depends(get_current_user)):
+    """List all documents owned by the authenticated user."""
+    database = db.get_db()
+    docs = await database["documents"].find({"owner_id": current_user.id}).sort("created_at", -1).to_list(length=100)
+    return [_to_doc_response(d) for d in docs]
+
+@router.get("/{document_id}", response_model=DocumentResponse)
+async def get_document(document_id: str, current_user: User = Depends(get_current_user)):
+    """Get single document status and metadata (ownership strictly checked)."""
+    try:
+        oid = ObjectId(document_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid document ID format")
+
+    database = db.get_db()
+    doc = await database["documents"].find_one({"_id": oid, "owner_id": current_user.id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return _to_doc_response(doc)
+
+@router.get("/{document_id}/file")
+async def download_document_file(document_id: str, current_user: User = Depends(get_current_user)):
+    """Download stored document file with strict ownership verification."""
+    try:
+        oid = ObjectId(document_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid document ID format")
+
+    database = db.get_db()
+    doc = await database["documents"].find_one({"_id": oid, "owner_id": current_user.id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    file_path = UPLOAD_DIR / Path(doc["storage_path"]).name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File content not found on server")
+
+    return FileResponse(
+        path=str(file_path),
+        filename=doc["filename"],
+        media_type="application/pdf"
+    )
+
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(document_id: str, current_user: User = Depends(get_current_user)):
+    """
+    Deletes document and cascades cleanup across MongoDB provenance, Neo4j, and filesystem.
+    Removes orphan concepts that no longer have any active mentions or edges.
+    """
+    try:
+        oid = ObjectId(document_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid document ID format")
+
+    database = db.get_db()
+    doc = await database["documents"].find_one({"_id": oid, "owner_id": current_user.id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Mark as deleting state
+    await database["documents"].update_one({"_id": oid}, {"$set": {"status": "deleting"}})
+
+    # 1. Collect affected concept normalized names before deleting mentions
+    mentions = await database["concept_mentions"].find({
+        "owner_id": current_user.id,
+        "source_id": str(oid)
+    }).to_list(length=1000)
+    affected_concepts = {m["normalized_name"] for m in mentions}
+
+    # 2. Delete chunks, mentions, and edges for this document
+    await database["chunks"].delete_many({"document_id": str(oid)})
+    await database["concept_mentions"].delete_many({"owner_id": current_user.id, "source_id": str(oid)})
+    await database["concept_edges"].delete_many({"owner_id": current_user.id, "source_id": str(oid)})
+
+    # 3. Clean up orphan concepts (no mentions and no edges left for this owner)
+    for c_norm in affected_concepts:
+        has_mentions = await database["concept_mentions"].find_one({"owner_id": current_user.id, "normalized_name": c_norm})
+        has_edges = await database["concept_edges"].find_one({
+            "owner_id": current_user.id,
+            "$or": [{"from_concept": c_norm}, {"to_concept": c_norm}]
+        })
+        if not has_mentions and not has_edges:
+            await database["concepts"].delete_one({"owner_id": current_user.id, "normalized_name": c_norm})
+            # Remove from Neo4j
+            driver = neo4j_db.get_driver()
+            if driver:
+                try:
+                    async with driver.session() as session:
+                        q = f"MATCH (c:{settings.NEO4J_LABEL_PREFIX}Concept {{owner_id: $owner_id, id: $cid}}) DETACH DELETE c"
+                        await session.run(q, owner_id=current_user.id, cid=c_norm)
+                except Exception as ne:
+                    print(f"[Neo4j Concept Delete] {ne}")
+
+    # 4. Delete ES document if available
+    es = elasticsearch_db.get_client()
+    if es:
+        try:
+            await es.delete(index=f"{settings.ES_INDEX_PREFIX}documents", id=str(oid))
+        except Exception:
+            pass
+
+    # 5. Delete Neo4j Document node if available
+    driver = neo4j_db.get_driver()
+    if driver:
+        try:
+            async with driver.session() as session:
+                q = f"MATCH (d:{settings.NEO4J_LABEL_PREFIX}Document {{owner_id: $owner_id, id: $did}}) DETACH DELETE d"
+                await session.run(q, owner_id=current_user.id, did=str(oid))
+        except Exception:
+            pass
+
+    # 6. Delete file from storage
+    file_path = UPLOAD_DIR / Path(doc["storage_path"]).name
+    if file_path.exists():
+        try:
+            file_path.unlink()
+        except Exception:
+            pass
+
+    # 7. Delete Document record
+    await database["documents"].delete_one({"_id": oid})
+    return None

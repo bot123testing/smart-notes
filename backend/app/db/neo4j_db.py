@@ -38,6 +38,8 @@ class Neo4jManager:
         queries = [
             f"CREATE CONSTRAINT IF NOT EXISTS FOR (u:{prefix}User) REQUIRE u.id IS UNIQUE",
             f"CREATE CONSTRAINT IF NOT EXISTS FOR (n:{prefix}Note) REQUIRE n.id IS UNIQUE",
+            f"CREATE CONSTRAINT IF NOT EXISTS FOR (d:{prefix}Document) REQUIRE d.id IS UNIQUE",
+            f"CREATE CONSTRAINT IF NOT EXISTS FOR (c:{prefix}Concept) REQUIRE (c.owner_id, c.id) IS UNIQUE",
         ]
         async with self.driver.session() as session:
             for q in queries:

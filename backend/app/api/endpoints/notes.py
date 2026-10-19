@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from pydantic import BaseModel
 from typing import List
 from app.models.note import Note, NoteCreate, LinkedNoteMeta, SuggestedLink
@@ -11,11 +11,13 @@ from app.db.neo4j_db import neo4j_db
 from app.db.elasticsearch_db import elasticsearch_db
 from app.core.config import settings
 import json
+import hashlib
 from app.api.activity_logger import log_activity
 from app.models.activity import ActionType
 from app.services.metrics_service import compute_and_store_metrics
 from app.services.recommendation_service import generate_hybrid_recommendations
 from app.services import nlp_service
+from app.services.pipeline_service import debounce_and_extract_note_concepts
 from datetime import datetime, timezone
 from bson import ObjectId
 
@@ -287,7 +289,11 @@ async def read_note(note_id: str, current_user: User = Depends(get_current_user)
 
 
 @router.post("/", response_model=Note)
-async def create_note(note: NoteCreate, current_user: User = Depends(get_current_user)):
+async def create_note(
+    note: NoteCreate,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user)
+):
     database = db.get_db()
     note_data = note.model_dump()
     print(f"[DEBUG CREATE] Incoming note_data: {note_data}")
@@ -331,13 +337,20 @@ async def create_note(note: NoteCreate, current_user: User = Depends(get_current
     await log_activity(database, current_user.id, note_id_str, ActionType.create)
     # Compute NLP suggestions after insert (fire-and-forget)
     await _compute_suggestions(database, note_id_str, current_user.id)
+    # Debounce concept extraction (~5s, non-blocking)
+    c_hash = hashlib.sha256(note.content.encode("utf-8")).hexdigest()
+    background_tasks.add_task(debounce_and_extract_note_concepts, note_id_str, c_hash, database)
+
     created = await database["notes"].find_one({"_id": result.inserted_id})
     return await _populate_links(database, created)
 
 
 @router.put("/{note_id}", response_model=Note)
 async def update_note(
-    note_id: str, note: NoteCreate, current_user: User = Depends(get_current_user)
+    note_id: str,
+    note: NoteCreate,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user)
 ):
     database = db.get_db()
     oid = _to_oid(note_id)
@@ -351,6 +364,10 @@ async def update_note(
     await log_activity(database, current_user.id, note_id, ActionType.edit)
     # Recompute NLP suggestions after content changes
     await _compute_suggestions(database, note_id, current_user.id)
+    # Debounce concept extraction (~5s, non-blocking)
+    c_hash = hashlib.sha256(note.content.encode("utf-8")).hexdigest()
+    background_tasks.add_task(debounce_and_extract_note_concepts, note_id, c_hash, database)
+
     updated = await database["notes"].find_one({"_id": oid})
     
     # Update Note in ElasticSearch
@@ -400,6 +417,10 @@ async def delete_note(note_id: str, current_user: User = Depends(get_current_use
 
     await database["notes"].delete_one({"_id": oid})
     
+    # Cascade delete from concept provenance
+    await database["concept_mentions"].delete_many({"owner_id": current_user.id, "source_id": note_id})
+    await database["concept_edges"].delete_many({"owner_id": current_user.id, "source_id": note_id})
+
     # Delete Note in ElasticSearch
     es_client = elasticsearch_db.get_client()
     if es_client:

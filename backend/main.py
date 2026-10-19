@@ -2,11 +2,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings, verify_namespace_guard
-from app.api.endpoints import auth, notes, activity, graph, search, ai
+from app.api.endpoints import auth, notes, activity, graph, search, ai, documents
 from app.db.mongodb import db
 from app.db.redis import redis_client
 from app.db.neo4j_db import neo4j_db
 from app.db.elasticsearch_db import elasticsearch_db
+from app.services.pipeline_service import startup_recovery_sweep
 
 
 @asynccontextmanager
@@ -19,6 +20,13 @@ async def lifespan(app: FastAPI):
     await redis_client.connect()
     await neo4j_db.connect()
     await elasticsearch_db.connect()
+
+    # Startup recovery sweep for incomplete or orphaned background tasks
+    try:
+        await startup_recovery_sweep(db.get_db())
+    except Exception as e:
+        print(f"[Startup Sweep Warning] {e}")
+
     yield
     # Shutdown: close all connections
     await elasticsearch_db.disconnect()
@@ -48,4 +56,6 @@ app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
 app.include_router(activity.router, prefix="/api/activity", tags=["activity"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
+app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
+
 

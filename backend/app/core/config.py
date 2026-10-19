@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
 
+    # Ingestion & Extraction configurations
+    MAX_UPLOAD_SIZE_BYTES: int = 15 * 1024 * 1024  # 15 MB
+    MAX_PDF_PAGES: int = 50
+    CHUNK_SIZE_WORDS: int = 400
+    CHUNK_OVERLAP_WORDS: int = 80
+    LEASE_TIMEOUT_SECONDS: int = 120
+    HEARTBEAT_INTERVAL_SECONDS: int = 30
+
     model_config = SettingsConfigDict(
         env_file=str(env_path) if env_path.exists() else ".env",
         extra="ignore"
