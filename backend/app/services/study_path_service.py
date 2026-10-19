@@ -430,6 +430,18 @@ async def get_concept_graph(
         src_prefix = "doc" if m.get("source_type") == "document" else "note"
         src = f"{src_prefix}_{m['source_id']}"
         tgt = f"concept_{m['normalized_name']}"
+        if tgt not in node_ids:
+            c_name = m.get("concept_name") or m["normalized_name"].replace("_", " ").title()
+            nodes.append(ConceptGraphNode(
+                id=tgt,
+                label=c_name,
+                type="concept",
+                is_known=(m["normalized_name"] in known_set),
+                mention_count=1,
+                description=None
+            ))
+            node_ids.add(tgt)
+
         if src in node_ids and tgt in node_ids and (src, tgt, "MENTIONS") not in edge_seen:
             edges.append(ConceptGraphEdge(source=src, target=tgt, type="MENTIONS"))
             edge_seen.add((src, tgt, "MENTIONS"))

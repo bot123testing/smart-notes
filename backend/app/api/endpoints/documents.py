@@ -4,9 +4,10 @@ from typing import List
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, status
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from app.models.user import User
-from app.models.document import DocumentResponse
+from app.models.document import DocumentResponse, DocumentDetailResponse, ChunkResponse, ConceptItem
 from app.api.deps import get_current_user
 from app.db.mongodb import db
 from app.db.elasticsearch_db import elasticsearch_db
@@ -62,9 +63,9 @@ async def list_documents(current_user: User = Depends(get_current_user)):
     docs = await database["documents"].find({"owner_id": current_user.id}).sort("created_at", -1).to_list(length=100)
     return [_to_doc_response(d) for d in docs]
 
-@router.get("/{document_id}", response_model=DocumentResponse)
+@router.get("/{document_id}", response_model=DocumentDetailResponse)
 async def get_document(document_id: str, current_user: User = Depends(get_current_user)):
-    """Get single document status and metadata (ownership strictly checked)."""
+    """Get single document status, chunks, and extracted concepts (ownership strictly checked)."""
     try:
         oid = ObjectId(document_id)
     except Exception:
@@ -75,7 +76,77 @@ async def get_document(document_id: str, current_user: User = Depends(get_curren
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    return _to_doc_response(doc)
+    base = _to_doc_response(doc)
+
+    # 1. Fetch chunks
+    raw_chunks = await database["chunks"].find({"document_id": str(oid)}).sort("chunk_index", 1).to_list(length=500)
+    chunks_out = [
+        ChunkResponse(
+            id=str(c["_id"]),
+            document_id=c["document_id"],
+            owner_id=c.get("owner_id", current_user.id),
+            chunk_index=c.get("chunk_index", 0),
+            page_number=c.get("page_number", 1),
+            text=c.get("text", ""),
+            content_hash=c.get("content_hash"),
+            extraction_status=c.get("extraction_status", "ready"),
+            extracted_concepts=c.get("extracted_concepts", []),
+            word_count=c.get("word_count"),
+            token_count=c.get("token_count")
+        )
+        for c in raw_chunks
+    ]
+
+    # 2. Fetch extracted concepts via mentions and concepts collection
+    mentions = await database["concept_mentions"].find({
+        "owner_id": current_user.id,
+        "source_id": str(oid)
+    }).to_list(length=500)
+
+    concept_norms = list({m["normalized_name"] for m in mentions if "normalized_name" in m})
+    concepts_meta = {}
+    if concept_norms:
+        cdocs = await database["concepts"].find({
+            "owner_id": current_user.id,
+            "normalized_name": {"$in": concept_norms}
+        }).to_list(length=500)
+        for cd in cdocs:
+            concepts_meta[cd["normalized_name"]] = cd
+
+    concepts_out = []
+    seen_concepts = set()
+    for m in mentions:
+        norm = m.get("normalized_name")
+        if norm and norm not in seen_concepts:
+            seen_concepts.add(norm)
+            meta = concepts_meta.get(norm, {})
+            concepts_out.append(ConceptItem(
+                name=meta.get("name") or m.get("concept_name", norm),
+                normalized_name=norm,
+                description=meta.get("description"),
+                mention_count=meta.get("mention_count", 1)
+            ))
+
+    # 3. Fetch explicit links
+    linked_raw = doc.get("linked_ids", [])
+    linked_items = []
+    for lid in linked_raw:
+        if ObjectId.is_valid(lid):
+            ldoc = await database["documents"].find_one({"_id": ObjectId(lid)})
+            if ldoc:
+                linked_items.append({"id": lid, "title": ldoc.get("filename", "PDF Document"), "type": "document"})
+            else:
+                lnote = await database["notes"].find_one({"_id": ObjectId(lid)})
+                if lnote:
+                    linked_items.append({"id": lid, "title": lnote.get("title", "Text Note"), "type": "note"})
+
+    return DocumentDetailResponse(
+        **base.model_dump(),
+        chunks=chunks_out,
+        concepts=concepts_out,
+        linked_items=linked_items,
+        download_url=f"/api/documents/{str(oid)}/file"
+    )
 
 @router.get("/{document_id}/file")
 async def download_document_file(document_id: str, current_user: User = Depends(get_current_user)):
@@ -190,7 +261,10 @@ async def get_document_related_content(
     Returns related documents and notes sharing concepts and/or text similarity with this document.
     """
     database = db.get_db()
-    oid = _to_oid(document_id)
+    try:
+        oid = ObjectId(document_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid document ID format")
     doc = await database["documents"].find_one({"_id": oid, "owner_id": current_user.id})
     if not doc:
         raise HTTPException(
@@ -199,4 +273,73 @@ async def get_document_related_content(
         )
 
     return await get_related_content(document_id, "document", current_user.id, database)
+
+
+class DocumentLinkRequest(BaseModel):
+    target_id: str
+    target_type: str = "document"  # "document" or "note"
+
+@router.post("/{document_id}/link")
+async def link_document(
+    document_id: str,
+    body: DocumentLinkRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Bidirectionally links document_id ↔ target_id (note or document).
+    """
+    database = db.get_db()
+    d_oid = ObjectId(document_id)
+    doc = await database["documents"].find_one({"_id": d_oid, "owner_id": current_user.id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    t_oid = ObjectId(body.target_id)
+    if body.target_type == "document":
+        target_doc = await database["documents"].find_one({"_id": t_oid, "owner_id": current_user.id})
+        if not target_doc:
+            raise HTTPException(status_code=404, detail="Target document not found")
+        await database["documents"].update_one({"_id": d_oid}, {"$addToSet": {"linked_ids": body.target_id}})
+        await database["documents"].update_one({"_id": t_oid}, {"$addToSet": {"linked_ids": document_id}})
+    else:
+        target_note = await database["notes"].find_one({"_id": t_oid, "owner_id": current_user.id})
+        if not target_note:
+            raise HTTPException(status_code=404, detail="Target note not found")
+        await database["documents"].update_one({"_id": d_oid}, {"$addToSet": {"linked_ids": body.target_id}})
+        await database["notes"].update_one({"_id": t_oid}, {"$addToSet": {"linked_note_ids": document_id}})
+
+    # Create relationship in Neo4j if available
+    driver = neo4j_db.get_driver()
+    if driver:
+        lbl_a = f"{settings.NEO4J_LABEL_PREFIX}Document"
+        lbl_b = f"{settings.NEO4J_LABEL_PREFIX}Document" if body.target_type == "document" else f"{settings.NEO4J_LABEL_PREFIX}Note"
+        q = f"""
+        MATCH (a:{lbl_a} {{id: $id1}})
+        MATCH (b:{lbl_b} {{id: $id2}})
+        MERGE (a)-[:RELATED_TO]->(b)
+        """
+        try:
+            async with driver.session() as session:
+                await session.run(q, id1=document_id, id2=body.target_id)
+        except Exception as ne:
+            print(f"[Neo4j Document Link Error] {ne}")
+
+    return {"status": "linked", "source_id": document_id, "target_id": body.target_id}
+
+@router.delete("/{document_id}/unlink")
+async def unlink_document(
+    document_id: str,
+    body: DocumentLinkRequest,
+    current_user: User = Depends(get_current_user)
+):
+    database = db.get_db()
+    d_oid = ObjectId(document_id)
+    t_oid = ObjectId(body.target_id)
+    await database["documents"].update_one({"_id": d_oid}, {"$pull": {"linked_ids": body.target_id}})
+    if body.target_type == "document":
+        await database["documents"].update_one({"_id": t_oid}, {"$pull": {"linked_ids": document_id}})
+    else:
+        await database["notes"].update_one({"_id": t_oid}, {"$pull": {"linked_note_ids": document_id}})
+    return {"status": "unlinked"}
+
 

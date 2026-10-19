@@ -31,6 +31,12 @@ class DocumentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+class ConceptItem(BaseModel):
+    name: str
+    normalized_name: str
+    description: Optional[str] = None
+    mention_count: int = 1
+
 class ChunkResponse(BaseModel):
     id: str
     document_id: str
@@ -38,6 +44,14 @@ class ChunkResponse(BaseModel):
     chunk_index: int
     page_number: int
     text: str
-    content_hash: str
+    content_hash: Optional[str] = None
     extraction_status: str
     extracted_concepts: List[str] = []
+    word_count: Optional[int] = None
+    token_count: Optional[int] = None
+
+class DocumentDetailResponse(DocumentResponse):
+    chunks: List[ChunkResponse] = []
+    concepts: List[ConceptItem] = []
+    linked_items: List[dict] = []
+    download_url: Optional[str] = None

@@ -89,6 +89,7 @@ async def process_document_chunking(doc_id: str, database) -> int:
 
     chunks = extract_and_chunk_pdf(doc)
     if chunks:
+        await database["chunks"].delete_many({"document_id": str(oid)})
         await database["chunks"].insert_many(chunks)
 
     now = datetime.now(timezone.utc)

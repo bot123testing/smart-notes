@@ -19,28 +19,51 @@ import api from '../../services/api';
 import Link from 'next/link';
 
 // ── Layout helper ────────────────────────────────────────────────────────────
-function layoutGraph(nodes, radius = 380) {
-  const n = nodes.length;
-  return nodes.map((node, i) => {
-    // Separate into clusters: concepts in inner ring, docs/notes in outer ring
-    const isConcept = node.data.type === 'concept';
-    const r = isConcept ? radius * 0.75 : radius * 1.35;
-    const angle = (2 * Math.PI * i) / Math.max(n, 1) - Math.PI / 2;
-    return {
+// ── Layout helper ────────────────────────────────────────────────────────────
+function layoutGraph(nodes, radius = 340) {
+  if (!nodes || nodes.length === 0) return [];
+  const centerX = 560;
+  const centerY = 380;
+  
+  const concepts = nodes.filter(n => n.data.type === 'concept');
+  const others = nodes.filter(n => n.data.type !== 'concept');
+  
+  const positioned = [];
+  
+  // Concepts in inner ring
+  concepts.forEach((node, i) => {
+    const angle = (2 * Math.PI * i) / Math.max(concepts.length, 1) - Math.PI / 2;
+    const r = radius * 0.85;
+    positioned.push({
       ...node,
       position: {
-        x: Math.round(r * Math.cos(angle) + radius + 120),
-        y: Math.round(r * Math.sin(angle) + radius + 120),
+        x: Math.round(centerX + r * Math.cos(angle)),
+        y: Math.round(centerY + r * Math.sin(angle)),
       },
-    };
+    });
   });
+  
+  // Documents and notes in outer ring
+  others.forEach((node, i) => {
+    const angle = (2 * Math.PI * i) / Math.max(others.length, 1) - Math.PI / 2;
+    const r = radius * 1.5;
+    positioned.push({
+      ...node,
+      position: {
+        x: Math.round(centerX + r * Math.cos(angle)),
+        y: Math.round(centerY + r * Math.sin(angle)),
+      },
+    });
+  });
+  
+  return positioned;
 }
 
 // ── Custom Concept Node ──────────────────────────────────────────────────────
 function ConceptNode({ data }) {
   const isKnown = data.is_known;
   const borderColor = isKnown ? '#10b981' : '#8b5cf6';
-  const bgColor = isKnown ? 'rgba(16, 185, 129, 0.12)' : 'rgba(139, 92, 246, 0.12)';
+  const bgColor = isKnown ? 'rgba(16, 185, 129, 0.18)' : 'rgba(139, 92, 246, 0.18)';
 
   return (
     <div
@@ -52,11 +75,12 @@ function ConceptNode({ data }) {
         minWidth: 120,
         maxWidth: 220,
         cursor: 'pointer',
-        boxShadow: isKnown ? '0 0 14px rgba(16, 185, 129, 0.25)' : '0 0 14px rgba(139, 92, 246, 0.25)',
+        boxShadow: isKnown ? '0 0 14px rgba(16, 185, 129, 0.3)' : '0 0 14px rgba(139, 92, 246, 0.3)',
         backdropFilter: 'blur(8px)',
         textAlign: 'center',
       }}
     >
+      <Handle type="target" position={Position.Top} style={{ opacity: 0, width: 8, height: 8 }} />
       <div style={{ fontSize: 13, fontWeight: 700, color: '#f9fafb', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {data.label}
       </div>
@@ -64,8 +88,7 @@ function ConceptNode({ data }) {
         <span>{isKnown ? '✓ Mastered' : '○ To Learn'}</span>
         <span>• ⚡{data.mention_count || 1}</span>
       </div>
-      <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
-      <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
+      <Handle type="source" position={Position.Bottom} style={{ opacity: 0, width: 8, height: 8 }} />
     </div>
   );
 }
@@ -75,24 +98,24 @@ function DocumentNode({ data }) {
   return (
     <div
       style={{
-        background: 'rgba(59, 130, 246, 0.12)',
+        background: 'rgba(59, 130, 246, 0.18)',
         border: '2px solid #3b82f6',
         borderRadius: 10,
         padding: '8px 14px',
         maxWidth: 180,
         cursor: 'pointer',
         backdropFilter: 'blur(8px)',
-        boxShadow: '0 0 10px rgba(59, 130, 246, 0.2)',
+        boxShadow: '0 0 12px rgba(59, 130, 246, 0.25)',
       }}
     >
+      <Handle type="target" position={Position.Top} style={{ opacity: 0, width: 8, height: 8 }} />
       <div style={{ fontSize: 10, fontWeight: 700, color: '#60a5fa', textTransform: 'uppercase' }}>
         📄 PDF Document
       </div>
       <div style={{ fontSize: 12, fontWeight: 600, color: '#f9fafb', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {data.label}
       </div>
-      <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
-      <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
+      <Handle type="source" position={Position.Bottom} style={{ opacity: 0, width: 8, height: 8 }} />
     </div>
   );
 }
@@ -102,24 +125,24 @@ function NoteNode({ data }) {
   return (
     <div
       style={{
-        background: 'rgba(245, 158, 11, 0.12)',
+        background: 'rgba(245, 158, 11, 0.18)',
         border: '2px solid #f59e0b',
         borderRadius: 10,
         padding: '8px 14px',
         maxWidth: 180,
         cursor: 'pointer',
         backdropFilter: 'blur(8px)',
-        boxShadow: '0 0 10px rgba(245, 158, 11, 0.2)',
+        boxShadow: '0 0 12px rgba(245, 158, 11, 0.25)',
       }}
     >
+      <Handle type="target" position={Position.Top} style={{ opacity: 0, width: 8, height: 8 }} />
       <div style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24', textTransform: 'uppercase' }}>
         📝 Text Note
       </div>
       <div style={{ fontSize: 12, fontWeight: 600, color: '#f9fafb', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {data.label}
       </div>
-      <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
-      <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
+      <Handle type="source" position={Position.Bottom} style={{ opacity: 0, width: 8, height: 8 }} />
     </div>
   );
 }
@@ -301,9 +324,14 @@ export default function ConceptGraphPage() {
               nodeTypes={nodeTypes}
               onNodeClick={onNodeClick}
               fitView
+              fitViewOptions={{ padding: 0.2 }}
+              defaultViewport={{ x: 0, y: 0, zoom: 0.85 }}
+              minZoom={0.2}
+              maxZoom={2.5}
+              style={{ width: '100%', height: '100%' }}
             >
               <Background color="#27272a" gap={20} />
-              <Controls />
+              <Controls style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }} />
               <MiniMap
                 nodeColor={(n) => {
                   if (n.type === 'concept') return n.data.is_known ? '#10b981' : '#8b5cf6';
@@ -457,8 +485,9 @@ const styles = {
     cursor: 'pointer',
   },
   canvasContainer: {
-    flex: 1,
-    minHeight: '75vh',
+    width: '100%',
+    height: 'calc(100vh - 180px)',
+    minHeight: '640px',
     background: 'var(--surface)',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius)',

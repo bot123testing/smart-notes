@@ -151,7 +151,7 @@ async def _persist_extracted_provenance(data: dict, owner_id: str, source_id: st
       3. concept_edges
     And syncs to Neo4j if reachable.
     """
-    if not database:
+    if database is None:
         return data
 
     now = datetime.now(timezone.utc)

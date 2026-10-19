@@ -18,7 +18,9 @@ export default function DocumentsPage() {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [relatedItems, setRelatedItems] = useState([]);
   const [loadingRelated, setLoadingRelated] = useState(false);
-  const [activeTab, setActiveTab] = useState('concepts'); // 'concepts' | 'chunks' | 'related'
+  const [activeTab, setActiveTab] = useState('preview'); // 'preview' | 'concepts' | 'chunks' | 'related'
+  const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
+  const [loadingPdf, setLoadingPdf] = useState(false);
   const fileInputRef = useRef(null);
 
   // Fetch documents list
@@ -106,7 +108,13 @@ export default function DocumentsPage() {
   const openDocumentDetails = async (doc) => {
     setSelectedDoc(doc);
     setLoadingDetails(true);
-    setActiveTab('concepts');
+    setLoadingPdf(true);
+    setActiveTab('preview');
+    if (pdfBlobUrl) {
+      window.URL.revokeObjectURL(pdfBlobUrl);
+      setPdfBlobUrl(null);
+    }
+
     try {
       const res = await api.get(`/documents/${doc.id}`);
       setDocDetails(res.data);
@@ -117,6 +125,26 @@ export default function DocumentsPage() {
     } finally {
       setLoadingDetails(false);
     }
+
+    // Fetch PDF binary for in-modal preview
+    try {
+      const fileRes = await api.get(`/documents/${doc.id}/file`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([fileRes.data], { type: 'application/pdf' }));
+      setPdfBlobUrl(url);
+    } catch (err) {
+      console.error('Failed to fetch PDF blob for preview:', err);
+    } finally {
+      setLoadingPdf(false);
+    }
+  };
+
+  const closeDocumentDetails = () => {
+    if (pdfBlobUrl) {
+      window.URL.revokeObjectURL(pdfBlobUrl);
+      setPdfBlobUrl(null);
+    }
+    setSelectedDoc(null);
+    setDocDetails(null);
   };
 
   const fetchRelated = async (docId) => {
@@ -327,7 +355,7 @@ export default function DocumentsPage() {
 
         {/* Document Detail Modal / Drawer */}
         {selectedDoc && (
-          <div style={styles.modalOverlay} onClick={() => setSelectedDoc(null)}>
+          <div style={styles.modalOverlay} onClick={closeDocumentDetails}>
             <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
               <div style={styles.modalHeader}>
                 <div>
@@ -335,43 +363,110 @@ export default function DocumentsPage() {
                   <div style={{ display: 'flex', gap: 12, marginTop: 4, alignItems: 'center' }}>
                     {getStatusBadge(selectedDoc.status)}
                     <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                      📑 {selectedDoc.page_count} pages • 💾 {(selectedDoc.file_size_bytes / (1024 * 1024)).toFixed(2)} MB
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                       SHA256: {selectedDoc.file_sha256?.slice(0, 12)}...
                     </span>
                   </div>
                 </div>
-                <button onClick={() => setSelectedDoc(null)} style={styles.closeBtn}>✕</button>
+                <button onClick={closeDocumentDetails} style={styles.closeBtn}>✕</button>
               </div>
 
               {/* Tabs */}
               <div style={styles.tabBar}>
                 <button
+                  style={{ ...styles.tabBtn, ...(activeTab === 'preview' ? styles.tabBtnActive : {}) }}
+                  onClick={() => setActiveTab('preview')}
+                >
+                  📄 PDF Preview
+                </button>
+                <button
                   style={{ ...styles.tabBtn, ...(activeTab === 'concepts' ? styles.tabBtnActive : {}) }}
                   onClick={() => setActiveTab('concepts')}
                 >
-                  Extracted Concepts ({docDetails?.concepts?.length || 0})
+                  🧠 Extracted Concepts ({docDetails?.concepts?.length || 0})
                 </button>
                 <button
                   style={{ ...styles.tabBtn, ...(activeTab === 'chunks' ? styles.tabBtnActive : {}) }}
                   onClick={() => setActiveTab('chunks')}
                 >
-                  Chunks ({docDetails?.chunks?.length || 0})
+                  🧩 Chunks ({docDetails?.chunks?.length || 0})
                 </button>
                 <button
                   style={{ ...styles.tabBtn, ...(activeTab === 'related' ? styles.tabBtnActive : {}) }}
                   onClick={() => setActiveTab('related')}
                 >
-                  Related Content ({relatedItems.length})
+                  🔗 Related Content ({relatedItems.length})
                 </button>
               </div>
 
               {/* Tab Contents */}
               <div style={styles.tabBody}>
-                {loadingDetails ? (
+                {activeTab === 'preview' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                    <div style={styles.infoBanner}>
+                      <span style={{ fontSize: 18 }}>💡</span>
+                      <div>
+                        <strong>Original Document Viewer:</strong> Read your uploaded PDF directly with native in-browser zoom and page navigation.
+                      </div>
+                      <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                        <button
+                          onClick={() => handleDownloadFile(selectedDoc.id, selectedDoc.filename)}
+                          style={styles.actionBtnSmall}
+                        >
+                          ⬇️ Download
+                        </button>
+                        {pdfBlobUrl && (
+                          <a
+                            href={pdfBlobUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={styles.actionBtnSmall}
+                          >
+                            ↗️ Open in Tab
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    {loadingPdf ? (
+                      <div style={styles.centered}>
+                        <div className="spinner" />
+                        <p style={{ marginTop: 12, color: 'var(--text-secondary)' }}>Loading PDF document...</p>
+                      </div>
+                    ) : pdfBlobUrl ? (
+                      <iframe
+                        src={`${pdfBlobUrl}#toolbar=1`}
+                        title={selectedDoc.filename}
+                        style={{
+                          width: '100%',
+                          height: '520px',
+                          border: '1px solid var(--border)',
+                          borderRadius: 8,
+                          background: '#18181b',
+                          flex: 1,
+                        }}
+                      />
+                    ) : (
+                      <div style={styles.centered}>
+                        <p style={{ color: 'var(--text-tertiary)' }}>Unable to load PDF preview. Use the download button above.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : loadingDetails ? (
                   <div style={styles.centered}><div className="spinner" /></div>
                 ) : activeTab === 'concepts' ? (
                   <div style={styles.conceptsList}>
+                    <div style={styles.infoBanner}>
+                      <span style={{ fontSize: 18 }}>💡</span>
+                      <div>
+                        <strong>What are Extracted Concepts?</strong> High-level technical topics, architectures, and algorithms discovered in this document by Gemini 2.5 Flash. Click <em>Study Path</em> on any concept to view prerequisite chains.
+                      </div>
+                    </div>
+
                     {(!docDetails?.concepts || docDetails.concepts.length === 0) ? (
-                      <p style={{ color: 'var(--text-tertiary)' }}>
+                      <p style={{ color: 'var(--text-tertiary)', padding: 16 }}>
                         {selectedDoc.status === 'ready'
                           ? 'No distinct concepts extracted from this document.'
                           : 'Concepts are currently being extracted in the background...'}
@@ -397,26 +492,47 @@ export default function DocumentsPage() {
                   </div>
                 ) : activeTab === 'chunks' ? (
                   <div style={styles.chunksList}>
+                    <div style={styles.infoBanner}>
+                      <span style={{ fontSize: 18 }}>💡</span>
+                      <div>
+                        <strong>What are Chunks?</strong> The document is partitioned into semantic segments (~400 words) to enable precise search, vector indexing, and granular concept mapping without hitting AI token limits.
+                      </div>
+                    </div>
+
                     {(!docDetails?.chunks || docDetails.chunks.length === 0) ? (
-                      <p style={{ color: 'var(--text-tertiary)' }}>No chunks available.</p>
+                      <p style={{ color: 'var(--text-tertiary)', padding: 16 }}>No chunks available.</p>
                     ) : (
                       docDetails.chunks.map((ch) => (
                         <div key={ch.id} style={styles.chunkCard}>
                           <div style={styles.chunkMeta}>
                             <span>Page {ch.page_number} • Chunk #{ch.chunk_index + 1}</span>
-                            <span>{ch.word_count} words</span>
+                            <span>{ch.word_count || ch.token_count || 0} words</span>
                           </div>
                           <p style={styles.chunkText}>{ch.text}</p>
+                          {ch.extracted_concepts?.length > 0 && (
+                            <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              {ch.extracted_concepts.map((ec) => (
+                                <span key={ec} style={styles.chunkConceptTag}>#{ec}</span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ))
                     )}
                   </div>
                 ) : (
                   <div style={styles.relatedList}>
+                    <div style={styles.infoBanner}>
+                      <span style={{ fontSize: 18 }}>💡</span>
+                      <div>
+                        <strong>What is Related Content?</strong> Cross-connections between this document and your other uploaded PDFs and text notes, discovered through shared extracted concepts and Elasticsearch semantic text similarity.
+                      </div>
+                    </div>
+
                     {loadingRelated ? (
                       <div style={styles.centered}><div className="spinner" /></div>
                     ) : relatedItems.length === 0 ? (
-                      <p style={{ color: 'var(--text-tertiary)' }}>
+                      <p style={{ color: 'var(--text-tertiary)', padding: 16 }}>
                         No cross-linked documents or notes found yet. Create notes or upload more PDFs sharing concepts to see automatic links.
                       </p>
                     ) : (
@@ -703,8 +819,8 @@ const styles = {
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius)',
     width: '100%',
-    maxWidth: 780,
-    maxHeight: '85vh',
+    maxWidth: 960,
+    height: '88vh',
     display: 'flex',
     flexDirection: 'column',
     boxShadow: 'var(--shadow-md)',
@@ -848,5 +964,39 @@ const styles = {
   relatedReason: {
     fontSize: 12,
     color: 'var(--text-secondary)',
+  },
+  infoBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    background: 'rgba(139, 92, 246, 0.1)',
+    border: '1px solid rgba(139, 92, 246, 0.25)',
+    borderRadius: 8,
+    padding: '12px 16px',
+    marginBottom: 16,
+    fontSize: 13,
+    color: 'var(--text)',
+    lineHeight: 1.5,
+  },
+  actionBtnSmall: {
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 6,
+    padding: '4px 10px',
+    fontSize: 12,
+    color: 'var(--primary)',
+    fontWeight: 600,
+    cursor: 'pointer',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+  },
+  chunkConceptTag: {
+    fontSize: 11,
+    padding: '2px 8px',
+    borderRadius: 4,
+    background: 'rgba(139, 92, 246, 0.15)',
+    color: '#c084fc',
+    fontWeight: 600,
   },
 };

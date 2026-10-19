@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 /* ── Icons (inline SVG to avoid installing icon library) ───────────────── */
 const SearchIcon = () => (
@@ -36,6 +37,11 @@ const SparkIcon = () => (
     <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
   </svg>
 );
+const UploadIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+  </svg>
+);
 
 /* ── Tag chip component ─────────────────────────────────────────────────── */
 function TagChip({ tag, onRemove }) {
@@ -51,8 +57,9 @@ function TagChip({ tag, onRemove }) {
   );
 }
 
-/* ── Note card in list ──────────────────────────────────────────────────── */
-function NoteListItem({ note, isSelected, onClick }) {
+/* ── Unified Knowledge Base List Item (Notes & PDFs together) ────────── */
+function UnifiedListItem({ item, isSelected, onClick }) {
+  const isDoc = item.itemType === 'document';
   const relTime = (iso) => {
     if (!iso) return '';
     const diff = Date.now() - new Date(iso).getTime();
@@ -65,22 +72,34 @@ function NoteListItem({ note, isSelected, onClick }) {
   };
 
   return (
-    <div onClick={onClick} style={{
-      ...s.noteItem,
-      ...(isSelected ? s.noteItemActive : {}),
-    }}>
-      <div style={s.noteItemTitle}>{note.title || 'Untitled'}</div>
-      {note.content && (
-        <div style={s.noteItemSnippet}>
-          {note.content.slice(0, 80)}{note.content.length > 80 ? '…' : ''}
+    <div
+      onClick={onClick}
+      style={{
+        ...s.noteItem,
+        ...(isSelected ? s.noteItemActive : {}),
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+        <span style={isDoc ? s.typeBadgePdf : s.typeBadgeNote}>
+          {isDoc ? '📄 PDF' : '📝 NOTE'}
+        </span>
+        <div style={s.noteItemTitle} title={item.title}>
+          {item.title || 'Untitled'}
         </div>
-      )}
+      </div>
+
+      <div style={s.noteItemSnippet}>
+        {isDoc
+          ? `${item.page_count} pages • ${item.chunk_count || 1} chunks • ${((item.file_size_bytes || 0) / (1024 * 1024)).toFixed(1)} MB`
+          : (item.content ? `${item.content.slice(0, 75)}${item.content.length > 75 ? '…' : ''}` : 'Empty note')}
+      </div>
+
       <div style={s.noteItemMeta}>
-        <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>{relTime(note.updated_at)}</span>
+        <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>{relTime(item.updated_at)}</span>
         <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-          {note.tags?.slice(0, 2).map(t => <TagChip key={t} tag={t} />)}
-          {note.linked_notes?.length > 0 && (
-            <span style={s.linkBadge}><LinkIcon /> {note.linked_notes.length}</span>
+          {item.tags?.slice(0, 2).map((t) => <TagChip key={t} tag={t} />)}
+          {item.linked_count > 0 && (
+            <span style={s.linkBadge}><LinkIcon /> {item.linked_count}</span>
           )}
         </div>
       </div>
@@ -88,36 +107,20 @@ function NoteListItem({ note, isSelected, onClick }) {
   );
 }
 
-/* ── Suggestion row ─────────────────────────────────────────────────────── */
-function SuggestionRow({ suggestion, onLink, onDismiss }) {
-  const [linking, setLinking] = useState(false);
-  const doLink = async () => { setLinking(true); await onLink(suggestion); setLinking(false); };
-  return (
-    <div style={s.suggestionRow}>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>{suggestion.title}</div>
-        <div style={{ width: 60, height: 3, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
-          <div style={{ width: `${Math.round(suggestion.score * 100)}%`, height: '100%', background: 'var(--primary)', borderRadius: 2 }} />
-        </div>
-      </div>
-      <span style={{ fontSize: 11, color: 'var(--text-tertiary)', minWidth: 34 }}>{Math.round(suggestion.score * 100)}%</span>
-      <button onClick={doLink} disabled={linking} className="btn btn-primary" style={{ padding: '4px 10px', fontSize: 12 }}>
-        {linking ? <span className="spinner" style={{ width: 12, height: 12 }} /> : '+ Link'}
-      </button>
-      <button onClick={() => onDismiss(suggestion.note_id)} style={s.dismissBtn}><XIcon /></button>
-    </div>
-  );
-}
-
 /* ── Main Component ─────────────────────────────────────────────────────── */
 export default function Home() {
-  const { userToken, logout } = useAuth();
+  const { userToken, loading: authLoading, logout } = useAuth();
   const router = useRouter();
+
+  // Landing page redirect: If unauthenticated, immediately redirect to /login
+  useEffect(() => {
+    if (!authLoading && !userToken) {
+      router.replace('/login');
+    }
+  }, [userToken, authLoading, router]);
 
   // Theme toggle
   const [isDark, setIsDark] = useState(true);
-
-  // Init theme from localStorage on mount
   useEffect(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('webTheme') : null;
     const dark = saved !== 'light';
@@ -133,18 +136,19 @@ export default function Home() {
     localStorage.setItem('webTheme', attr);
   };
 
-  // List state
+  // Unified Knowledge base state
   const [notes, setNotes] = useState([]);
-  const [searchResults, setSearchResults] = useState(null); // null = not searching
+  const [documents, setDocuments] = useState([]);
+  const [filterKind, setFilterKind] = useState('all'); // 'all' | 'notes' | 'documents'
   const [searchQuery, setSearchQuery] = useState('');
-  const [loadingNotes, setLoadingNotes] = useState(true);
+  const [searchResults, setSearchResults] = useState(null);
+  const [loadingItems, setLoadingItems] = useState(true);
 
-  // Manual link picker
-  const [showLinkPicker, setShowLinkPicker] = useState(false);
-  const [linkPickerQuery, setLinkPickerQuery] = useState('');
-  const [linkingManual, setLinkingManual] = useState(null); // note being linked
+  // Quick PDF upload from sidebar
+  const pdfInputRef = useRef(null);
+  const [quickUploading, setQuickUploading] = useState(false);
 
-  // Create form
+  // Create form state
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
@@ -152,33 +156,193 @@ export default function Home() {
   const [newTags, setNewTags] = useState([]);
   const [creating, setCreating] = useState(false);
 
-  // Detail / editing
+  // Selected item state (Can be a Note or a PDF Document)
   const [selected, setSelected] = useState(null);
+
+  // Note editing state
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
   const [editTagInput, setEditTagInput] = useState('');
   const [editTags, setEditTags] = useState([]);
   const [saving, setSaving] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
+
+  // PDF Document details & preview state
+  const [selectedDocDetails, setSelectedDocDetails] = useState(null);
+  const [loadingDocDetails, setLoadingDocDetails] = useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
+  const [docActiveTab, setDocActiveTab] = useState('preview'); // 'preview' | 'concepts' | 'chunks'
+
+  // Cross-Source Connections (Text-Text, Text-PDF, PDF-PDF)
   const [relatedContent, setRelatedContent] = useState([]);
+  const [loadingRelated, setLoadingRelated] = useState(false);
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [linkPickerQuery, setLinkPickerQuery] = useState('');
+  const [linkingManual, setLinkingManual] = useState(null);
 
   const searchDebounce = useRef(null);
 
-  useEffect(() => {
-    if (!userToken) { router.push('/login'); return; }
-    fetchNotes();
+  // Fetch full knowledge base (Notes + PDFs)
+  const fetchKnowledgeBase = useCallback(async () => {
+    if (!userToken) return;
+    setLoadingItems(true);
+    try {
+      const [notesRes, docsRes] = await Promise.all([
+        api.get('/notes/'),
+        api.get('/documents/')
+      ]);
+      setNotes(notesRes.data || []);
+      setDocuments(docsRes.data || []);
+    } catch (err) {
+      console.error('Failed to fetch knowledge base:', err);
+    } finally {
+      setLoadingItems(false);
+    }
   }, [userToken]);
 
-  const fetchNotes = async () => {
-    setLoadingNotes(true);
+  useEffect(() => {
+    if (userToken) {
+      fetchKnowledgeBase();
+    }
+  }, [userToken, fetchKnowledgeBase]);
+
+  // Clean up PDF blob on unmount or doc switch
+  useEffect(() => {
+    return () => {
+      if (pdfBlobUrl) window.URL.revokeObjectURL(pdfBlobUrl);
+    };
+  }, [pdfBlobUrl]);
+
+  // Select a Note
+  const selectNote = async (note) => {
+    if (pdfBlobUrl) {
+      window.URL.revokeObjectURL(pdfBlobUrl);
+      setPdfBlobUrl(null);
+    }
+    setSelectedDocDetails(null);
+    setShowCreate(false);
+
+    const noteItem = {
+      ...note,
+      itemType: 'note',
+      linked_count: note.linked_note_ids?.length || 0,
+    };
+    setSelected(noteItem);
+    setEditTitle(note.title);
+    setEditContent(note.content || '');
+    setEditTags(note.tags || []);
+    setEditTagInput('');
+    setSuggestions((note.suggested_links || []).filter(s => !(note.linked_note_ids || []).includes(s.note_id)));
+
+    // Refresh fresh note detail
     try {
-      const res = await api.get('/notes/');
-      setNotes(res.data);
-    } catch { /* auth redirect handled by interceptor */ }
-    finally { setLoadingNotes(false); }
+      const res = await api.get(`/notes/${note.id}`);
+      const fresh = { ...res.data, itemType: 'note', linked_count: res.data.linked_note_ids?.length || 0 };
+      setSelected(fresh);
+      setEditTitle(fresh.title);
+      setEditContent(fresh.content || '');
+      setEditTags(fresh.tags || []);
+      const linkedIds = fresh.linked_note_ids || [];
+      setSuggestions((fresh.suggested_links || []).filter(s => !linkedIds.includes(s.note_id)));
+    } catch { /* use current */ }
+
+    // Fetch cross-source connections (Text-Text, Text-PDF)
+    setLoadingRelated(true);
+    try {
+      const relRes = await api.get(`/notes/${note.id}/related_content`);
+      setRelatedContent(relRes.data.items || []);
+    } catch {
+      setRelatedContent([]);
+    } finally {
+      setLoadingRelated(false);
+    }
   };
 
-  /* ── Search ── */
+  // Select a PDF Document
+  const selectDocument = async (doc) => {
+    if (pdfBlobUrl) {
+      window.URL.revokeObjectURL(pdfBlobUrl);
+      setPdfBlobUrl(null);
+    }
+    setShowCreate(false);
+
+    const docItem = {
+      id: doc.id,
+      itemType: 'document',
+      title: doc.filename,
+      filename: doc.filename,
+      page_count: doc.page_count,
+      chunk_count: doc.chunk_count,
+      file_size_bytes: doc.file_size_bytes,
+      status: doc.status,
+      updated_at: doc.updated_at,
+      raw: doc,
+      linked_count: doc.linked_ids?.length || 0,
+    };
+    setSelected(docItem);
+    setLoadingDocDetails(true);
+    setDocActiveTab('preview');
+
+    // Fetch enriched document details (chunks, concepts, linked_items)
+    try {
+      const res = await api.get(`/documents/${doc.id}`);
+      setSelectedDocDetails(res.data);
+    } catch (err) {
+      console.error('Failed to fetch doc details:', err);
+    } finally {
+      setLoadingDocDetails(false);
+    }
+
+    // Fetch in-modal PDF preview blob
+    try {
+      const fileRes = await api.get(`/documents/${doc.id}/file`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([fileRes.data], { type: 'application/pdf' }));
+      setPdfBlobUrl(url);
+    } catch (err) {
+      console.error('Failed to load PDF preview:', err);
+    }
+
+    // Fetch cross-source connections (PDF-PDF, PDF-Text)
+    setLoadingRelated(true);
+    try {
+      const relRes = await api.get(`/documents/${doc.id}/related`);
+      setRelatedContent(relRes.data.items || []);
+    } catch {
+      setRelatedContent([]);
+    } finally {
+      setLoadingRelated(false);
+    }
+  };
+
+  // Quick PDF file upload directly from Notes page
+  const handleQuickPdfUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
+      alert('Only genuine PDF documents (.pdf) are supported.');
+      return;
+    }
+
+    setQuickUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await api.post('/documents/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      await fetchKnowledgeBase();
+      if (pdfInputRef.current) pdfInputRef.current.value = '';
+      selectDocument(res.data);
+    } catch (err) {
+      alert('Failed to upload PDF: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setQuickUploading(false);
+    }
+  };
+
+  // Search across knowledge base
   const handleSearchChange = (q) => {
     setSearchQuery(q);
     if (searchDebounce.current) clearTimeout(searchDebounce.current);
@@ -191,39 +355,9 @@ export default function Home() {
     }, 400);
   };
 
-  /* ── Select a note ── */
-  const selectNote = async (note) => {
-    setSelected(note);
-    setEditTitle(note.title);
-    setEditContent(note.content || '');
-    setEditTags(note.tags || []);
-    setEditTagInput('');
-    setSuggestions((note.suggested_links || []).filter(s => !(note.linked_note_ids || []).includes(s.note_id)));
-
-    // Refresh note detail from server
-    try {
-      const res = await api.get(`/notes/${note.id}`);
-      const fresh = res.data;
-      setSelected(fresh);
-      setEditTitle(fresh.title);
-      setEditContent(fresh.content || '');
-      setEditTags(fresh.tags || []);
-      const linkedIds = fresh.linked_note_ids || [];
-      setSuggestions((fresh.suggested_links || []).filter(s => !linkedIds.includes(s.note_id)));
-    } catch { /* use stale data */ }
-
-    // Fetch hybrid cross-source related content
-    try {
-      const relRes = await api.get(`/notes/${note.id}/related_content`);
-      setRelatedContent(relRes.data.items || []);
-    } catch {
-      setRelatedContent([]);
-    }
-  };
-
-  /* ── Save note ── */
+  // Save text note
   const saveNote = async () => {
-    if (!selected || !editTitle.trim()) return;
+    if (!selected || selected.itemType !== 'note' || !editTitle.trim()) return;
     setSaving(true);
     try {
       await api.put(`/notes/${selected.id}`, {
@@ -232,15 +366,14 @@ export default function Home() {
         tags: editTags,
         linked_note_ids: selected.linked_note_ids || [],
       });
-      await fetchNotes();
-      // Refresh selected
+      await fetchKnowledgeBase();
       const res = await api.get(`/notes/${selected.id}`);
-      setSelected(res.data);
+      setSelected({ ...res.data, itemType: 'note' });
     } catch { alert('Could not save note.'); }
     finally { setSaving(false); }
   };
 
-  /* ── Create note ── */
+  // Create text note
   const createNote = async (e) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
@@ -249,46 +382,93 @@ export default function Home() {
       const res = await api.post('/notes/', { title: newTitle, content: newContent, tags: newTags });
       setNewTitle(''); setNewContent(''); setNewTags([]); setNewTagInput('');
       setShowCreate(false);
-      await fetchNotes();
+      await fetchKnowledgeBase();
       selectNote(res.data);
     } catch { alert('Could not create note.'); }
     finally { setCreating(false); }
   };
 
-  /* ── Delete note ── */
-  const deleteNote = async (noteId) => {
-    if (!confirm('Delete this note?')) return;
-    try {
-      await api.delete(`/notes/${noteId}`);
-      if (selected?.id === noteId) setSelected(null);
-      await fetchNotes();
-    } catch { alert('Could not delete note.'); }
+  // Delete Note or Document
+  const handleDeleteCurrent = async () => {
+    if (!selected) return;
+    if (selected.itemType === 'note') {
+      if (!confirm(`Delete note "${selected.title}"?`)) return;
+      try {
+        await api.delete(`/notes/${selected.id}`);
+        setSelected(null);
+        await fetchKnowledgeBase();
+      } catch { alert('Could not delete note.'); }
+    } else {
+      if (!confirm(`Delete PDF "${selected.title}" and its extracted concepts?`)) return;
+      try {
+        await api.delete(`/documents/${selected.id}`);
+        setSelected(null);
+        if (pdfBlobUrl) window.URL.revokeObjectURL(pdfBlobUrl);
+        setPdfBlobUrl(null);
+        await fetchKnowledgeBase();
+      } catch { alert('Could not delete document.'); }
+    }
   };
 
-  /* ── Link suggestion ── */
-  const handleLinkSuggestion = async (suggestion) => {
+  // Link items (Bidirectional Text-Text, Text-PDF, PDF-PDF)
+  const handleLinkTarget = async (targetId, targetType) => {
+    if (!selected) return;
+    setLinkingManual(targetId);
+    try {
+      if (selected.itemType === 'note') {
+        if (targetType === 'note') {
+          await api.post(`/notes/${selected.id}/link`, { target_note_id: targetId });
+        } else {
+          await api.post(`/documents/${targetId}/link`, { target_id: selected.id, target_type: 'note' });
+        }
+        await selectNote(selected);
+      } else {
+        await api.post(`/documents/${selected.id}/link`, { target_id: targetId, target_type: targetType });
+        await selectDocument(selected);
+      }
+      setShowLinkPicker(false);
+      await fetchKnowledgeBase();
+    } catch (err) {
+      alert('Could not create connection: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setLinkingManual(null);
+    }
+  };
+
+  // Unlink items
+  const handleUnlink = async (targetId, targetType = 'note') => {
     if (!selected) return;
     try {
-      await api.post(`/notes/${selected.id}/link`, { target_note_id: suggestion.note_id });
-      setSuggestions(prev => prev.filter(s => s.note_id !== suggestion.note_id));
-      const res = await api.get(`/notes/${selected.id}`);
-      setSelected(res.data);
-      await fetchNotes();
-    } catch { alert('Could not link notes.'); }
+      if (selected.itemType === 'note') {
+        await api.delete(`/notes/${selected.id}/unlink`, { data: { target_note_id: targetId } });
+        await selectNote(selected);
+      } else {
+        await api.delete(`/documents/${selected.id}/unlink`, { data: { target_id: targetId, target_type: targetType } });
+        await selectDocument(selected);
+      }
+      await fetchKnowledgeBase();
+    } catch {
+      alert('Could not unlink connection.');
+    }
   };
 
-  /* ── Unlink ── */
-  const handleUnlink = async (targetId) => {
-    if (!selected) return;
+  // Download PDF
+  const handleDownloadPdf = async (docId, filename) => {
     try {
-      await api.delete(`/notes/${selected.id}/unlink`, { data: { target_note_id: targetId } });
-      const res = await api.get(`/notes/${selected.id}`);
-      setSelected(res.data);
-      await fetchNotes();
-    } catch { alert('Could not unlink notes.'); }
+      const res = await api.get(`/documents/${docId}/file`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch {
+      alert('Failed to download document.');
+    }
   };
 
-  /* ── Tag helpers ── */
+  // Tag helpers
   const addTag = (input, setInput, tags, setTags) => {
     const raw = input.trim().replace(/^#/, '').toLowerCase();
     if (raw && !tags.includes(raw)) setTags(prev => [...prev, raw]);
@@ -296,7 +476,7 @@ export default function Home() {
   };
   const removeTag = (tag, setTags) => setTags(prev => prev.filter(t => t !== tag));
 
-  /* ── AI Magic Tagging ── */
+  // AI Magic Tagging
   const [generatingTags, setGeneratingTags] = useState(false);
   const generateMagicTags = async (isEditMode) => {
     const t = isEditMode ? editTitle : newTitle;
@@ -310,26 +490,66 @@ export default function Home() {
       const res = await api.post('/ai/magic-tags', { title: t, content: c });
       const generated = res.data || [];
       const setTags = isEditMode ? setEditTags : setNewTags;
-      setTags(prev => {
-        const unique = new Set([...prev, ...generated]);
-        return Array.from(unique);
-      });
-    } catch (err) {
-      console.error(err);
+      setTags(prev => Array.from(new Set([...prev, ...generated])));
+    } catch {
       alert('Failed to generate tags. Quota might be exceeded!');
     } finally {
       setGeneratingTags(false);
     }
   };
 
-  /* ── Display list ── */
-  const displayNotes = searchResults !== null ? searchResults : notes;
+  // Aggregate Unified List
+  const unifiedItems = [
+    ...notes.map(n => ({
+      id: n.id,
+      itemType: 'note',
+      title: n.title,
+      content: n.content,
+      tags: n.tags || [],
+      linked_count: n.linked_note_ids?.length || 0,
+      updated_at: n.updated_at,
+      raw: n,
+    })),
+    ...documents.map(d => ({
+      id: d.id,
+      itemType: 'document',
+      title: d.filename,
+      filename: d.filename,
+      page_count: d.page_count,
+      chunk_count: d.chunk_count,
+      file_size_bytes: d.file_size_bytes,
+      status: d.status,
+      linked_count: d.linked_ids?.length || 0,
+      updated_at: d.updated_at,
+      raw: d,
+    }))
+  ].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
 
-  if (!userToken) return null;
+  // Filter items by type & search
+  const filteredItems = unifiedItems.filter(item => {
+    if (filterKind === 'notes' && item.itemType !== 'note') return false;
+    if (filterKind === 'documents' && item.itemType !== 'document') return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchTitle = (item.title || '').toLowerCase().includes(q);
+      const matchContent = (item.content || '').toLowerCase().includes(q);
+      const matchTags = (item.tags || []).some(t => t.toLowerCase().includes(q));
+      return matchTitle || matchContent || matchTags;
+    }
+    return true;
+  });
+
+  if (authLoading || !userToken) {
+    return (
+      <div style={s.splashLoading}>
+        <div className="spinner" />
+      </div>
+    );
+  }
 
   return (
     <div style={s.root}>
-      {/* ── Sidebar ── */}
+      {/* ── Left Sidebar (Unified Knowledge Base: Notes & PDFs Together) ── */}
       <aside style={s.sidebar}>
         {/* Header */}
         <div style={s.sidebarHeader}>
@@ -338,10 +558,10 @@ export default function Home() {
             <span style={s.logoText}>Smart Notes+</span>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            <a href="/documents" style={s.navLink} title="PDF Documents & Ingestion">📚</a>
-            <a href="/study-path" style={s.navLink} title="Study Path Builder">🗺️</a>
-            <a href="/concept-graph" style={s.navLink} title="Concept Graph">🧠</a>
-            <a href="/analytics" style={s.navLink} title="Analytics">📉</a>
+            <Link href="/documents" style={s.navLink} title="PDF Documents & Ingestion">📚</Link>
+            <Link href="/study-path" style={s.navLink} title="Study Path Builder">🗺️</Link>
+            <Link href="/concept-graph" style={s.navLink} title="Interactive Concept Graph">🧠</Link>
+            <Link href="/analytics" style={s.navLink} title="Analytics">📉</Link>
             <button onClick={toggleTheme} style={s.navLink} title={isDark ? 'Switch to Light' : 'Switch to Dark'}>
               {isDark ? '☀️' : '🌙'}
             </button>
@@ -354,7 +574,7 @@ export default function Home() {
           <SearchIcon />
           <input
             style={s.searchInput}
-            placeholder="Search notes…"
+            placeholder="Search notes & PDFs…"
             value={searchQuery}
             onChange={e => handleSearchChange(e.target.value)}
           />
@@ -363,37 +583,74 @@ export default function Home() {
           )}
         </div>
 
-        {/* New note button */}
-        <button
-          className="btn btn-primary"
-          onClick={() => { setShowCreate(true); setSelected(null); }}
-          style={{ margin: '0 14px 8px', fontSize: 13, height: 36 }}
-        >
-          <PlusIcon /> New Note
-        </button>
+        {/* Filter Pills (All / Notes / PDFs) */}
+        <div style={s.filterRow}>
+          <button
+            onClick={() => setFilterKind('all')}
+            style={{ ...s.filterPill, ...(filterKind === 'all' ? s.filterPillActive : {}) }}
+          >
+            All ({unifiedItems.length})
+          </button>
+          <button
+            onClick={() => setFilterKind('notes')}
+            style={{ ...s.filterPill, ...(filterKind === 'notes' ? s.filterPillActive : {}) }}
+          >
+            📝 Notes ({notes.length})
+          </button>
+          <button
+            onClick={() => setFilterKind('documents')}
+            style={{ ...s.filterPill, ...(filterKind === 'documents' ? s.filterPillActive : {}) }}
+          >
+            📄 PDFs ({documents.length})
+          </button>
+        </div>
 
-        {/* Search info */}
-        {searchResults !== null && (
-          <div style={{ padding: '4px 16px', fontSize: 12, color: 'var(--text-tertiary)' }}>
-            {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for &ldquo;{searchQuery}&rdquo;
-          </div>
-        )}
+        {/* Action Buttons: New Note & Upload PDF */}
+        <div style={{ display: 'flex', gap: 8, margin: '0 14px 10px' }}>
+          <button
+            className="btn btn-primary"
+            onClick={() => { setShowCreate(true); setSelected(null); }}
+            style={{ flex: 1, fontSize: 13, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+          >
+            <PlusIcon /> Note
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={() => pdfInputRef.current?.click()}
+            disabled={quickUploading}
+            style={{ flex: 1, fontSize: 13, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            title="Upload a PDF document to knowledge base"
+          >
+            {quickUploading ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <UploadIcon />}
+            {quickUploading ? 'Uploading…' : 'PDF'}
+          </button>
+          <input
+            ref={pdfInputRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            onChange={handleQuickPdfUpload}
+            style={{ display: 'none' }}
+          />
+        </div>
 
-        {/* Note list */}
+        {/* Unified Item List */}
         <div style={s.noteList}>
-          {loadingNotes ? (
+          {loadingItems ? (
             <div style={s.centeredMsg}><span className="spinner" /></div>
-          ) : displayNotes.length === 0 ? (
+          ) : filteredItems.length === 0 ? (
             <div style={s.centeredMsg}>
-              {searchResults !== null ? 'No results.' : 'No notes yet. Create one!'}
+              {searchQuery ? 'No matching items.' : 'No notes or PDFs yet. Create or upload one!'}
             </div>
           ) : (
-            displayNotes.map(note => (
-              <NoteListItem
-                key={note.id || note._id}
-                note={note}
-                isSelected={selected?.id === (note.id || note._id)}
-                onClick={() => selectNote(note)}
+            filteredItems.map(item => (
+              <UnifiedListItem
+                key={`${item.itemType}-${item.id}`}
+                item={item}
+                isSelected={selected?.id === item.id && selected?.itemType === item.itemType}
+                onClick={() => {
+                  if (item.itemType === 'note') selectNote(item.raw);
+                  else selectDocument(item.raw);
+                }}
               />
             ))
           )}
@@ -402,11 +659,11 @@ export default function Home() {
 
       {/* ── Main Panel ── */}
       <main style={s.main}>
-        {/* Create form */}
+        {/* Create Note Form */}
         {showCreate && (
           <form onSubmit={createNote} style={s.createForm} className="animate-in">
             <div style={s.panelHeader}>
-              <h2 style={s.panelTitle}>New Note</h2>
+              <h2 style={s.panelTitle}>New Text Note</h2>
               <button type="button" className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setShowCreate(false)}>Cancel</button>
             </div>
             <input
@@ -418,23 +675,15 @@ export default function Home() {
               autoFocus
               style={{ fontSize: 18, fontWeight: 700, background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', borderRadius: 0, padding: '8px 0', marginBottom: 16 }}
             />
-            <textarea
-              className="input"
-              placeholder="Start writing…"
-              value={newContent}
-              onChange={e => setNewContent(e.target.value)}
-              style={{ minHeight: 160, border: 'none', background: 'transparent', padding: '8px 0', fontSize: 15, lineHeight: 1.7, resize: 'none', borderRadius: 0 }}
-            />
-            {/* Tags */}
-            <div style={{ marginTop: 12, marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <div style={s.tagFieldLabel}>Tags</div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>TAGS</span>
                 <button
                   type="button"
                   onClick={() => generateMagicTags(false)}
                   disabled={generatingTags}
                   className="btn btn-ghost"
-                  style={{ fontSize: 12, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px' }}
+                  style={{ fontSize: 12, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px' }}
                 >
                   {generatingTags ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <SparkIcon />}
                   AI Magic Tag
@@ -444,73 +693,82 @@ export default function Home() {
                 {newTags.map(t => <TagChip key={t} tag={t} onRemove={tag => removeTag(tag, setNewTags)} />)}
                 <input
                   style={s.tagInlineInput}
-                  placeholder={newTags.length === 0 ? 'Add tags (enter or comma)…' : ''}
+                  placeholder={newTags.length === 0 ? 'Type a tag and press Enter…' : ''}
                   value={newTagInput}
                   onChange={e => setNewTagInput(e.target.value)}
-                  onBlur={() => addTag(newTagInput, setNewTagInput, newTags, setNewTags)}
                   onKeyDown={e => {
                     if (e.key === 'Enter') { e.preventDefault(); addTag(newTagInput, setNewTagInput, newTags, setNewTags); }
                     if (e.key === ',') { e.preventDefault(); addTag(newTagInput, setNewTagInput, newTags, setNewTags); }
-                    if (e.key === 'Backspace' && !newTagInput && newTags.length) removeTag(newTags[newTags.length - 1], setNewTags);
                   }}
                 />
               </div>
             </div>
-            <button type="submit" className="btn btn-primary" disabled={creating || !newTitle.trim()} style={{ alignSelf: 'flex-end', height: 38 }}>
-              {creating ? <span className="spinner" /> : 'Create Note'}
-            </button>
+            <textarea
+              style={s.editContent}
+              value={newContent}
+              onChange={e => setNewContent(e.target.value)}
+              placeholder="Start typing your note here…"
+              required
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+              <button type="button" className="btn btn-ghost" onClick={() => setShowCreate(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={creating}>
+                {creating ? <span className="spinner" style={{ width: 14, height: 14 }} /> : 'Create Note'}
+              </button>
+            </div>
           </form>
         )}
 
-        {/* Edit panel */}
-        {selected && !showCreate && (
-          <div style={s.editPanel} className="animate-in" key={selected.id}>
-            {/* Header */}
+        {/* Selected Item: TEXT NOTE VIEW */}
+        {selected && selected.itemType === 'note' && (
+          <div style={s.editPanel} className="animate-in">
             <div style={s.panelHeader}>
-              <input
-                style={s.editTitle}
-                value={editTitle}
-                onChange={e => setEditTitle(e.target.value)}
-                placeholder="Note title"
-              />
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => deleteNote(selected.id)}
-                  style={{ padding: '6px 10px', color: 'var(--danger)' }}
-                  title="Delete note"
-                >
-                  <TrashIcon />
-                </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+                <span style={s.typeBadgeNote}>📝 NOTE</span>
+                <input
+                  style={s.editTitle}
+                  value={editTitle}
+                  onChange={e => setEditTitle(e.target.value)}
+                  placeholder="Note Title"
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <button
                   className="btn btn-primary"
                   onClick={saveNote}
-                  disabled={saving || !editTitle.trim()}
-                  style={{ height: 36, fontSize: 13, minWidth: 72 }}
+                  disabled={saving}
+                  style={{ height: 34, fontSize: 13, padding: '0 16px' }}
                 >
-                  {saving ? <span className="spinner" /> : 'Save'}
+                  {saving ? <span className="spinner" style={{ width: 14, height: 14 }} /> : 'Save'}
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={handleDeleteCurrent}
+                  title="Delete Note"
+                  style={{ color: 'var(--danger)', height: 34, width: 34, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <TrashIcon />
                 </button>
               </div>
             </div>
 
-            {/* Content */}
             <textarea
               style={s.editContent}
               value={editContent}
               onChange={e => setEditContent(e.target.value)}
-              placeholder="Write your thoughts…"
+              placeholder="Write your note content…"
             />
 
             {/* Tags */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <div style={s.tagFieldLabel}>Tags</div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, padding: '0 24px' }}>
+                <span style={s.tagFieldLabel}>TAGS</span>
                 <button
                   type="button"
                   onClick={() => generateMagicTags(true)}
                   disabled={generatingTags}
                   className="btn btn-ghost"
-                  style={{ fontSize: 12, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px' }}
+                  style={{ fontSize: 12, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px' }}
                 >
                   {generatingTags ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <SparkIcon />}
                   AI Magic Tag
@@ -533,121 +791,49 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Linked notes — always show with Add Link button */}
+            {/* Connections & Related Items Section */}
             <div style={s.section}>
               <div style={{ ...s.sectionTitle, justifyContent: 'space-between' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><LinkIcon /> Connections ({selected.linked_notes?.length ?? 0})</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <LinkIcon /> Connections & Knowledge Links ({((selected.linked_notes?.length || 0) + relatedContent.length)})
+                </span>
                 <button
                   className="btn btn-ghost"
                   style={{ padding: '3px 10px', fontSize: 12, height: 26 }}
                   onClick={() => { setShowLinkPicker(true); setLinkPickerQuery(''); }}
                 >
-                  + Link Note
+                  + Link Note or PDF
                 </button>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+
+              {/* Explicit connections */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
                 {(selected.linked_notes || []).map(ln => (
                   <div key={ln.id} style={s.linkedChip}>
-                    <span style={{ cursor: 'pointer' }} onClick={() => selectNote(ln)}>{ln.title}</span>
-                    <button onClick={() => handleUnlink(ln.id)} style={s.unlinkBtn} title="Remove link"><XIcon /></button>
+                    <span style={{ cursor: 'pointer', fontWeight: 600 }} onClick={() => {
+                      const found = notes.find(n => n.id === ln.id);
+                      if (found) selectNote(found);
+                    }}>
+                      📝 {ln.title}
+                    </span>
+                    <button onClick={() => handleUnlink(ln.id, 'note')} style={s.unlinkBtn} title="Remove connection"><XIcon /></button>
                   </div>
                 ))}
-                {(!selected.linked_notes || selected.linked_notes.length === 0) && (
-                  <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>No connections yet. Click "+ Link Note" to connect ideas.</span>
-                )}
               </div>
 
-              {/* Inline link picker */}
-              {showLinkPicker && (
-                <div style={s.linkPickerBox}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <input
-                      autoFocus
-                      className="input"
-                      placeholder="Search notes to link…"
-                      value={linkPickerQuery}
-                      onChange={e => setLinkPickerQuery(e.target.value)}
-                      style={{ flex: 1, height: 32, padding: '4px 10px', fontSize: 13 }}
-                    />
-                    <button onClick={() => setShowLinkPicker(false)} style={s.unlinkBtn}><XIcon /></button>
-                  </div>
-                  <div style={s.linkPickerList}>
-                    {notes
-                      .filter(n =>
-                        n.id !== selected.id &&
-                        !(selected.linked_note_ids || []).includes(n.id) &&
-                        (n.title.toLowerCase().includes(linkPickerQuery.toLowerCase()) ||
-                          (n.content || '').toLowerCase().includes(linkPickerQuery.toLowerCase()))
-                      )
-                      .slice(0, 8)
-                      .map(n => (
-                        <button
-                          key={n.id}
-                          style={s.linkPickerRow}
-                          onClick={async () => {
-                            setLinkingManual(n.id);
-                            await handleLinkSuggestion({ note_id: n.id, title: n.title, score: 1 });
-                            setLinkingManual(null);
-                            setShowLinkPicker(false);
-                          }}
-                          disabled={linkingManual === n.id}
-                        >
-                          <span>{n.title}</span>
-                          {n.tags?.slice(0, 2).map(t => <TagChip key={t} tag={t} />)}
-                        </button>
-                      ))
-                    }
-                    {notes.filter(n => n.id !== selected.id && !(selected.linked_note_ids || []).includes(n.id) && n.title.toLowerCase().includes(linkPickerQuery.toLowerCase())).length === 0 && (
-                      <div style={{ padding: '10px 12px', color: 'var(--text-tertiary)', fontSize: 13 }}>No notes found.</div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-
-
-            {/* AI Suggestions */}
-            {suggestions.length > 0 && (
-              <div style={s.section}>
-                <div style={s.sectionTitle}><SparkIcon /> AI Suggestions</div>
-                <div style={s.suggestionsBox}>
-                  {suggestions.map(sug => (
-                    <SuggestionRow
-                      key={sug.note_id}
-                      suggestion={sug}
-                      onLink={handleLinkSuggestion}
-                      onDismiss={id => setSuggestions(prev => prev.filter(s => s.note_id !== id))}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Cross-Source Related Study Content */}
-            {relatedContent.length > 0 && (
-              <div style={s.section}>
-                <div style={s.sectionTitle}>📚 Cross-Linked Study Content ({relatedContent.length})</div>
+              {/* Cross-Source Connections (Text-Text, Text-PDF) */}
+              {loadingRelated ? (
+                <div style={{ padding: 12, textAlign: 'center' }}><div className="spinner" style={{ width: 16, height: 16 }} /></div>
+              ) : relatedContent.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {relatedContent.map((item) => (
-                    <div
-                      key={item.id}
-                      style={{
-                        background: 'var(--surface-hi)',
-                        border: '1px solid var(--border)',
-                        borderRadius: 8,
-                        padding: '10px 14px',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                      }}
-                    >
+                    <div key={item.id} style={s.connectionCard}>
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: item.source_type === 'document' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(245, 158, 11, 0.2)', color: item.source_type === 'document' ? '#60a5fa' : '#fbbf24' }}>
-                            {item.source_type === 'document' ? '📄 PDF' : '📝 Note'}
+                          <span style={item.source_type === 'document' ? s.typeBadgePdf : s.typeBadgeNote}>
+                            {item.source_type === 'document' ? '📄 PDF' : '📝 NOTE'}
                           </span>
-                          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
                             {item.title}
                           </span>
                         </div>
@@ -656,43 +842,351 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {item.source_type === 'document' ? (
-                        <a
-                          href="/documents"
-                          style={{ fontSize: 12, color: 'var(--primary)', fontWeight: 600, textDecoration: 'none' }}
-                        >
-                          View PDF →
-                        </a>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            const n = notes.find(n => n.id === item.id);
+                      <button
+                        onClick={() => {
+                          if (item.source_type === 'document') {
+                            const d = documents.find(doc => doc.id === item.id);
+                            if (d) selectDocument(d);
+                            else router.push('/documents');
+                          } else {
+                            const n = notes.find(nt => nt.id === item.id);
                             if (n) selectNote(n);
-                          }}
-                          style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-                        >
-                          Open Note →
-                        </button>
-                      )}
+                          }
+                        }}
+                        style={s.openLinkBtn}
+                      >
+                        Open {item.source_type === 'document' ? 'PDF' : 'Note'} →
+                      </button>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', padding: '6px 0' }}>
+                  No connections yet. Mention shared concepts or click "+ Link Note or PDF" above.
+                </div>
+              )}
+
+              {/* Inline Link Picker Modal / Popover */}
+              {showLinkPicker && (
+                <div style={s.linkPickerBox}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderBottom: '1px solid var(--border)' }}>
+                    <SearchIcon />
+                    <input
+                      autoFocus
+                      className="input"
+                      placeholder="Search any note or PDF to link…"
+                      value={linkPickerQuery}
+                      onChange={e => setLinkPickerQuery(e.target.value)}
+                      style={{ flex: 1, height: 30, background: 'transparent', border: 'none', outline: 'none', fontSize: 13 }}
+                    />
+                    <button onClick={() => setShowLinkPicker(false)} style={s.unlinkBtn}><XIcon /></button>
+                  </div>
+                  <div style={s.linkPickerList}>
+                    {unifiedItems
+                      .filter(i =>
+                        i.id !== selected.id &&
+                        (i.title.toLowerCase().includes(linkPickerQuery.toLowerCase()) ||
+                          (i.content || '').toLowerCase().includes(linkPickerQuery.toLowerCase()))
+                      )
+                      .slice(0, 8)
+                      .map(i => (
+                        <button
+                          key={`${i.itemType}-${i.id}`}
+                          style={s.linkPickerRow}
+                          onClick={() => handleLinkTarget(i.id, i.itemType)}
+                          disabled={linkingManual === i.id}
+                        >
+                          <span style={i.itemType === 'document' ? s.typeBadgePdf : s.typeBadgeNote}>
+                            {i.itemType === 'document' ? '📄 PDF' : '📝 NOTE'}
+                          </span>
+                          <span style={{ flex: 1 }}>{i.title}</span>
+                          <span style={{ fontSize: 11, color: 'var(--primary)' }}>+ Link</span>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* Empty state */}
+        {/* Selected Item: PDF DOCUMENT NOTE VIEW */}
+        {selected && selected.itemType === 'document' && (
+          <div style={s.docViewPanel} className="animate-in">
+            {/* Document Header */}
+            <div style={s.panelHeader}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                <span style={s.typeBadgePdf}>📄 PDF NOTE</span>
+                <div>
+                  <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)' }}>{selected.title}</h2>
+                  <div style={{ display: 'flex', gap: 12, marginTop: 4, alignItems: 'center' }}>
+                    <span style={{ ...s.statusBadge, ...(selected.status === 'ready' ? s.statusBadgeReady : s.statusBadgeWait) }}>
+                      {selected.status === 'ready' ? '✓ Ready' : `⏳ ${selected.status}`}
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                      📑 {selected.page_count} pages • 💾 {((selected.file_size_bytes || 0) / (1024 * 1024)).toFixed(2)} MB
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => handleDownloadPdf(selected.id, selected.filename)}
+                  style={{ height: 34, fontSize: 13, padding: '0 12px' }}
+                >
+                  ⬇️ Download
+                </button>
+                <Link
+                  href="/concept-graph"
+                  className="btn btn-ghost"
+                  style={{ height: 34, fontSize: 13, padding: '0 12px', display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  🧠 Graph
+                </Link>
+                <button
+                  className="btn btn-ghost"
+                  onClick={handleDeleteCurrent}
+                  title="Delete Document"
+                  style={{ color: 'var(--danger)', height: 34, width: 34, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <TrashIcon />
+                </button>
+              </div>
+            </div>
+
+            {/* Document View Sub-Tabs */}
+            <div style={s.subTabBar}>
+              <button
+                style={{ ...s.subTabBtn, ...(docActiveTab === 'preview' ? s.subTabBtnActive : {}) }}
+                onClick={() => setDocActiveTab('preview')}
+              >
+                📄 PDF Reader
+              </button>
+              <button
+                style={{ ...s.subTabBtn, ...(docActiveTab === 'concepts' ? s.subTabBtnActive : {}) }}
+                onClick={() => setDocActiveTab('concepts')}
+              >
+                🧠 Extracted Concepts ({selectedDocDetails?.concepts?.length || 0})
+              </button>
+              <button
+                style={{ ...s.subTabBtn, ...(docActiveTab === 'chunks' ? s.subTabBtnActive : {}) }}
+                onClick={() => setDocActiveTab('chunks')}
+              >
+                🧩 Text Chunks ({selectedDocDetails?.chunks?.length || 0})
+              </button>
+            </div>
+
+            {/* Sub-Tab Content */}
+            <div style={s.subTabContent}>
+              {docActiveTab === 'preview' && (
+                <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  {pdfBlobUrl ? (
+                    <iframe
+                      src={`${pdfBlobUrl}#toolbar=1`}
+                      title={selected.title}
+                      style={{ width: '100%', height: '480px', border: '1px solid var(--border)', borderRadius: 8, background: '#1c1c20' }}
+                    />
+                  ) : (
+                    <div style={s.centeredMsg}>
+                      <span className="spinner" />
+                      <p style={{ marginTop: 8 }}>Loading PDF in-browser viewer…</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {docActiveTab === 'concepts' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={s.infoBannerMini}>
+                    💡 Extracted by AI from this document. Click <em>Study Path</em> to build a prerequisite learning path.
+                  </div>
+                  {(!selectedDocDetails?.concepts || selectedDocDetails.concepts.length === 0) ? (
+                    <p style={{ color: 'var(--text-tertiary)', padding: 12 }}>No distinct concepts extracted yet.</p>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
+                      {selectedDocDetails.concepts.map(c => (
+                        <div key={c.normalized_name} style={s.conceptCardMini}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <strong style={{ fontSize: 13, color: '#f9fafb' }}>{c.name}</strong>
+                            <Link href={`/study-path?concept=${encodeURIComponent(c.normalized_name)}`} style={s.studyPathLinkMini}>
+                              🗺️ Path
+                            </Link>
+                          </div>
+                          <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                            {c.description || 'Core concept from document.'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {docActiveTab === 'chunks' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={s.infoBannerMini}>
+                    💡 Partitioned semantic chunks (~400 words) for vector search, context retrieval, and concept mapping.
+                  </div>
+                  {(!selectedDocDetails?.chunks || selectedDocDetails.chunks.length === 0) ? (
+                    <p style={{ color: 'var(--text-tertiary)', padding: 12 }}>No chunks available.</p>
+                  ) : (
+                    selectedDocDetails.chunks.map(ch => (
+                      <div key={ch.id} style={s.chunkCardMini}>
+                        <div style={{ fontSize: 11, color: 'var(--primary)', fontWeight: 700, marginBottom: 4 }}>
+                          Page {ch.page_number} • Chunk #{ch.chunk_index + 1} ({ch.token_count || ch.word_count || 0} words)
+                        </div>
+                        <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                          {ch.text}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Document Connections (PDF-PDF and PDF-Text) */}
+            <div style={s.section}>
+              <div style={{ ...s.sectionTitle, justifyContent: 'space-between' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <LinkIcon /> Document Connections ({((selectedDocDetails?.linked_items?.length || 0) + relatedContent.length)})
+                </span>
+                <button
+                  className="btn btn-ghost"
+                  style={{ padding: '3px 10px', fontSize: 12, height: 26 }}
+                  onClick={() => { setShowLinkPicker(true); setLinkPickerQuery(''); }}
+                >
+                  + Link Note or PDF
+                </button>
+              </div>
+
+              {/* Explicit connections */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                {(selectedDocDetails?.linked_items || []).map(li => (
+                  <div key={li.id} style={s.linkedChip}>
+                    <span style={{ cursor: 'pointer', fontWeight: 600 }} onClick={() => {
+                      if (li.type === 'document') {
+                        const d = documents.find(doc => doc.id === li.id);
+                        if (d) selectDocument(d);
+                      } else {
+                        const n = notes.find(nt => nt.id === li.id);
+                        if (n) selectNote(n);
+                      }
+                    }}>
+                      {li.type === 'document' ? '📄' : '📝'} {li.title}
+                    </span>
+                    <button onClick={() => handleUnlink(li.id, li.type)} style={s.unlinkBtn} title="Remove connection"><XIcon /></button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Cross-Source Connections (PDF-PDF, PDF-Text) */}
+              {loadingRelated ? (
+                <div style={{ padding: 12, textAlign: 'center' }}><div className="spinner" style={{ width: 16, height: 16 }} /></div>
+              ) : relatedContent.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {relatedContent.map((item) => (
+                    <div key={item.id} style={s.connectionCard}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={item.source_type === 'document' ? s.typeBadgePdf : s.typeBadgeNote}>
+                            {item.source_type === 'document' ? '📄 PDF' : '📝 NOTE'}
+                          </span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+                            {item.title}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+                          💡 {item.similarity_reason}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          if (item.source_type === 'document') {
+                            const d = documents.find(doc => doc.id === item.id);
+                            if (d) selectDocument(d);
+                            else router.push('/documents');
+                          } else {
+                            const n = notes.find(nt => nt.id === item.id);
+                            if (n) selectNote(n);
+                          }
+                        }}
+                        style={s.openLinkBtn}
+                      >
+                        Open {item.source_type === 'document' ? 'PDF' : 'Note'} →
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', padding: '6px 0' }}>
+                  No connections yet. Mention shared concepts or click "+ Link Note or PDF" above.
+                </div>
+              )}
+
+              {/* Inline Link Picker */}
+              {showLinkPicker && (
+                <div style={s.linkPickerBox}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderBottom: '1px solid var(--border)' }}>
+                    <SearchIcon />
+                    <input
+                      autoFocus
+                      className="input"
+                      placeholder="Search note or PDF to connect…"
+                      value={linkPickerQuery}
+                      onChange={e => setLinkPickerQuery(e.target.value)}
+                      style={{ flex: 1, height: 30, background: 'transparent', border: 'none', outline: 'none', fontSize: 13 }}
+                    />
+                    <button onClick={() => setShowLinkPicker(false)} style={s.unlinkBtn}><XIcon /></button>
+                  </div>
+                  <div style={s.linkPickerList}>
+                    {unifiedItems
+                      .filter(i =>
+                        i.id !== selected.id &&
+                        (i.title.toLowerCase().includes(linkPickerQuery.toLowerCase()) ||
+                          (i.content || '').toLowerCase().includes(linkPickerQuery.toLowerCase()))
+                      )
+                      .slice(0, 8)
+                      .map(i => (
+                        <button
+                          key={`${i.itemType}-${i.id}`}
+                          style={s.linkPickerRow}
+                          onClick={() => handleLinkTarget(i.id, i.itemType)}
+                          disabled={linkingManual === i.id}
+                        >
+                          <span style={i.itemType === 'document' ? s.typeBadgePdf : s.typeBadgeNote}>
+                            {i.itemType === 'document' ? '📄 PDF' : '📝 NOTE'}
+                          </span>
+                          <span style={{ flex: 1 }}>{i.title}</span>
+                          <span style={{ fontSize: 11, color: 'var(--primary)' }}>+ Link</span>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Empty state: Nothing selected */}
         {!selected && !showCreate && (
           <div style={s.emptyState}>
             <div style={s.emptyIcon}>✦</div>
-            <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Your knowledge base</h2>
-            <p style={{ color: 'var(--text-tertiary)', fontSize: 15, marginBottom: 24 }}>
-              Select a note to read or edit, or create a new one.
+            <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>Your Unified Knowledge Base</h2>
+            <p style={{ color: 'var(--text-tertiary)', fontSize: 15, maxWidth: 440, lineHeight: 1.6, marginBottom: 24 }}>
+              Select any text note or uploaded PDF to read, edit, or explore cross-source concept connections.
             </p>
-            <button className="btn btn-primary" onClick={() => setShowCreate(true)} style={{ height: 44, fontSize: 15 }}>
-              <PlusIcon /> New Note
-            </button>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button className="btn btn-primary" onClick={() => setShowCreate(true)} style={{ height: 42, fontSize: 14 }}>
+                <PlusIcon /> New Note
+              </button>
+              <button className="btn btn-secondary" onClick={() => pdfInputRef.current?.click()} style={{ height: 42, fontSize: 14 }}>
+                <UploadIcon /> Upload PDF
+              </button>
+            </div>
           </div>
         )}
       </main>
@@ -700,7 +1194,7 @@ export default function Home() {
   );
 }
 
-/* ── Styles ─────────────────────────────────────────────────────────────── */
+/* ── Comprehensive Styling ────────────────────────────────────────────────── */
 const s = {
   root: {
     display: 'flex',
@@ -709,11 +1203,18 @@ const s = {
     background: 'var(--bg)',
     fontFamily: "'Inter', system-ui, sans-serif",
   },
+  splashLoading: {
+    minHeight: '100vh',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#0e0e11',
+  },
 
   // Sidebar
   sidebar: {
-    width: 280,
-    minWidth: 240,
+    width: 320,
+    minWidth: 280,
     borderRight: '1px solid var(--border)',
     display: 'flex',
     flexDirection: 'column',
@@ -749,11 +1250,11 @@ const s = {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
-    margin: '10px 14px',
+    margin: '10px 14px 6px',
     padding: '7px 12px',
     background: 'var(--surface-hi)',
     border: '1px solid var(--border)',
-    borderRadius: 10,
+    borderRadius: 8,
     color: 'var(--text-tertiary)',
   },
   searchInput: {
@@ -762,26 +1263,93 @@ const s = {
   },
   clearBtn: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', padding: 0 },
 
+  // Filter Row
+  filterRow: {
+    display: 'flex',
+    gap: 4,
+    margin: '6px 14px 10px',
+    background: 'var(--surface-hi)',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    padding: 3,
+  },
+  filterPill: {
+    flex: 1,
+    background: 'none',
+    border: 'none',
+    padding: '5px 4px',
+    fontSize: 11,
+    color: 'var(--text-secondary)',
+    borderRadius: 6,
+    cursor: 'pointer',
+    fontWeight: 500,
+    textAlign: 'center',
+    transition: 'all 0.15s ease',
+  },
+  filterPillActive: {
+    background: 'var(--surface)',
+    color: 'var(--text)',
+    fontWeight: 700,
+    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+  },
+
   // Note list
   noteList: { flex: 1, overflowY: 'auto', padding: '4px 0' },
-  centeredMsg: { display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 32, color: 'var(--text-tertiary)', fontSize: 13 },
+  centeredMsg: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: 32, color: 'var(--text-tertiary)', fontSize: 13 },
 
   noteItem: {
-    padding: '11px 16px',
+    padding: '12px 16px',
     cursor: 'pointer',
     borderBottom: '1px solid var(--border)',
     transition: 'background 0.1s',
   },
   noteItemActive: { background: 'rgba(139,92,246,0.08)', borderLeft: '3px solid var(--primary)' },
-  noteItemTitle: { fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  noteItemSnippet: { fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 6, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' },
+  noteItemTitle: { fontSize: 13, fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 },
+  noteItemSnippet: { fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 6, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' },
   noteItemMeta: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 },
   linkBadge: { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: 'var(--primary)', background: 'rgba(139,92,246,0.1)', padding: '2px 7px', borderRadius: 999 },
+
+  typeBadgeNote: {
+    fontSize: 9,
+    fontWeight: 800,
+    background: 'rgba(245, 158, 11, 0.18)',
+    color: '#fbbf24',
+    border: '1px solid rgba(245, 158, 11, 0.3)',
+    padding: '2px 6px',
+    borderRadius: 4,
+    textTransform: 'uppercase',
+  },
+  typeBadgePdf: {
+    fontSize: 9,
+    fontWeight: 800,
+    background: 'rgba(59, 130, 246, 0.18)',
+    color: '#60a5fa',
+    border: '1px solid rgba(59, 130, 246, 0.3)',
+    padding: '2px 6px',
+    borderRadius: 4,
+    textTransform: 'uppercase',
+  },
+  statusBadge: {
+    fontSize: 11,
+    fontWeight: 600,
+    padding: '2px 8px',
+    borderRadius: 999,
+  },
+  statusBadgeReady: {
+    background: 'rgba(16, 185, 129, 0.15)',
+    color: '#34d399',
+    border: '1px solid rgba(16, 185, 129, 0.3)',
+  },
+  statusBadgeWait: {
+    background: 'rgba(139, 92, 246, 0.15)',
+    color: 'var(--primary)',
+    border: '1px solid rgba(139, 92, 246, 0.3)',
+  },
 
   // Main panel
   main: { flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' },
 
-  // Create form / Edit panel shared header
+  // Panel header
   panelHeader: {
     display: 'flex',
     alignItems: 'center',
@@ -806,21 +1374,22 @@ const s = {
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    overflow: 'hidden',
+    overflowY: 'auto',
   },
   editTitle: {
     flex: 1,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: 800,
     color: 'var(--text)',
     background: 'transparent',
     border: 'none',
     outline: 'none',
     fontFamily: 'inherit',
-    letterSpacing: -0.5,
+    letterSpacing: -0.4,
   },
   editContent: {
     flex: 1,
+    minHeight: 280,
     padding: '16px 24px',
     background: 'transparent',
     border: 'none',
@@ -830,11 +1399,69 @@ const s = {
     fontSize: 15,
     lineHeight: 1.8,
     resize: 'none',
+  },
+
+  // PDF Document View Panel
+  docViewPanel: {
+    display: 'flex',
+    flexDirection: 'column',
+    height: '100%',
     overflowY: 'auto',
+  },
+  subTabBar: {
+    display: 'flex',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--surface-hi)',
+    padding: '0 24px',
+  },
+  subTabBtn: {
+    background: 'none',
+    border: 'none',
+    padding: '12px 16px',
+    fontSize: 13,
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    borderBottom: '2px solid transparent',
+  },
+  subTabBtnActive: {
+    color: 'var(--primary)',
+    borderBottomColor: 'var(--primary)',
+    fontWeight: 700,
+  },
+  subTabContent: {
+    padding: '20px 24px',
+    flex: 1,
+  },
+  infoBannerMini: {
+    background: 'rgba(139, 92, 246, 0.08)',
+    border: '1px solid rgba(139, 92, 246, 0.2)',
+    borderRadius: 6,
+    padding: '8px 12px',
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+    marginBottom: 8,
+  },
+  conceptCardMini: {
+    background: 'var(--surface-hi)',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    padding: '10px 12px',
+  },
+  studyPathLinkMini: {
+    fontSize: 11,
+    color: 'var(--primary)',
+    textDecoration: 'none',
+    fontWeight: 700,
+  },
+  chunkCardMini: {
+    background: 'var(--surface-hi)',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    padding: '12px 14px',
   },
 
   // Tags
-  tagFieldLabel: { fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--text-tertiary)', marginBottom: 8, paddingLeft: 24 },
+  tagFieldLabel: { fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--text-tertiary)' },
   tagRow: { display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', padding: '0 24px' },
   tagInlineInput: {
     minWidth: 120, flex: 1,
@@ -843,13 +1470,13 @@ const s = {
   },
 
   // Sections
-  section: { padding: '12px 24px', borderTop: '1px solid var(--border)' },
-  sectionTitle: { fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--text-tertiary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 },
+  section: { padding: '16px 24px', borderTop: '1px solid var(--border)', background: 'var(--bg)' },
+  sectionTitle: { fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--text-tertiary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 },
 
   // Linked chips
   linkedChip: {
     display: 'inline-flex', alignItems: 'center', gap: 6,
-    padding: '5px 10px',
+    padding: '5px 12px',
     background: 'var(--surface-hi)',
     border: '1px solid var(--border)',
     borderRadius: 8,
@@ -857,31 +1484,47 @@ const s = {
   },
   unlinkBtn: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', padding: 0 },
 
-  // Suggestions
-  suggestionsBox: { border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' },
-  suggestionRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' },
-  dismissBtn: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', padding: 2 },
+  // Connection Cards (Text-Text, Text-PDF, PDF-PDF)
+  connectionCard: {
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    padding: '10px 14px',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    transition: 'border-color 0.15s ease',
+  },
+  openLinkBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'var(--primary)',
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: 'pointer',
+    padding: '4px 8px',
+  },
 
   // Link picker
   linkPickerBox: {
     marginTop: 12,
     border: '1px solid var(--border)',
-    borderRadius: 10,
+    borderRadius: 8,
     overflow: 'hidden',
     background: 'var(--surface)',
+    boxShadow: 'var(--shadow-md)',
   },
-  linkPickerList: { maxHeight: 220, overflowY: 'auto' },
+  linkPickerList: { maxHeight: 200, overflowY: 'auto' },
   linkPickerRow: {
-    display: 'flex', alignItems: 'center', gap: 8,
+    display: 'flex', alignItems: 'center', gap: 10,
     width: '100%', textAlign: 'left',
-    padding: '9px 12px',
+    padding: '8px 12px',
     background: 'none', border: 'none',
     borderBottom: '1px solid var(--border)',
     cursor: 'pointer', color: 'var(--text)',
     fontSize: 13, fontFamily: 'inherit',
     transition: 'background 0.1s',
   },
-
 
   // Empty state
   emptyState: {
@@ -890,11 +1533,11 @@ const s = {
     color: 'var(--text)', textAlign: 'center', padding: 40,
   },
   emptyIcon: {
-    width: 72, height: 72, borderRadius: 20,
-    background: 'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(109,40,217,0.1))',
-    border: '1px solid rgba(139,92,246,0.2)',
+    width: 68, height: 68, borderRadius: 18,
+    background: 'linear-gradient(135deg, rgba(139,92,246,0.25), rgba(109,40,217,0.1))',
+    border: '1px solid rgba(139,92,246,0.3)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: 28, marginBottom: 20,
-    boxShadow: '0 0 40px rgba(139,92,246,0.1)',
+    fontSize: 26, marginBottom: 18,
+    boxShadow: '0 0 40px rgba(139,92,246,0.15)',
   },
 };
