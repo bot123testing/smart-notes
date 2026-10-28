@@ -61,6 +61,7 @@ async def upload_document(
     return _to_doc_response(doc_record)
 
 @router.get("", response_model=List[DocumentResponse])
+@router.get("/", response_model=List[DocumentResponse], include_in_schema=False)
 async def list_documents(current_user: User = Depends(get_current_user)):
     """List all documents owned by the authenticated user."""
     database = db.get_db()
