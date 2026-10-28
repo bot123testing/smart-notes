@@ -1071,6 +1071,11 @@ export default function Home() {
                     <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                       📑 {selected.page_count} pages • 💾 {((selected.file_size_bytes || 0) / (1024 * 1024)).toFixed(2)} MB
                     </span>
+                    {docTags.length > 0 && (
+                      <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                        • {docTags.slice(0, 3).map(t => <TagChip key={t} tag={t} />)}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1098,39 +1103,6 @@ export default function Home() {
                 >
                   <TrashIcon />
                 </button>
-              </div>
-            </div>
-
-            {/* Document Tags (Issue 2) */}
-            <div style={s.tagRow}>
-              <div style={s.tagFieldHeader}>
-                <span style={s.tagFieldLabel}>TAGS</span>
-                <button
-                  style={s.sparkBtn}
-                  onClick={generateDocMagicTags}
-                  disabled={generatingDocTags}
-                  title="Generate tags with AI from document content"
-                >
-                  {generatingDocTags ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <SparkIcon />}
-                  Magic Tags
-                </button>
-              </div>
-              <div style={s.tagList}>
-                {docTags.map(t => (
-                  <TagChip key={t} tag={t} onRemove={tag => removeDocTag(tag, setDocTags)} />
-                ))}
-                <input
-                  style={s.tagInput}
-                  value={docTagInput}
-                  onChange={e => setDocTagInput(e.target.value)}
-                  placeholder={docTags.length === 0 ? 'Type a tag and press Enter…' : ''}
-                  onBlur={() => addDocTag(docTagInput, setDocTagInput, docTags, setDocTags)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') { e.preventDefault(); addDocTag(docTagInput, setDocTagInput, docTags, setDocTags); }
-                    if (e.key === ',') { e.preventDefault(); addDocTag(docTagInput, setDocTagInput, docTags, setDocTags); }
-                    if (e.key === 'Backspace' && !docTagInput && docTags.length) removeDocTag(docTags[docTags.length - 1], setDocTags);
-                  }}
-                />
               </div>
             </div>
 
@@ -1294,6 +1266,40 @@ export default function Home() {
                   )}
                 </div>
               )}
+            </div>
+
+            {/* Document Tags */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, padding: '0 24px' }}>
+                <span style={s.tagFieldLabel}>TAGS</span>
+                <button
+                  type="button"
+                  onClick={generateDocMagicTags}
+                  disabled={generatingDocTags}
+                  className="btn btn-ghost"
+                  style={{ fontSize: 12, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px' }}
+                >
+                  {generatingDocTags ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <SparkIcon />}
+                  AI Magic Tag
+                </button>
+              </div>
+              <div style={s.tagRow}>
+                {docTags.map(t => (
+                  <TagChip key={t} tag={t} onRemove={tag => removeDocTag(tag, setDocTags)} />
+                ))}
+                <input
+                  style={s.tagInlineInput}
+                  placeholder={docTags.length === 0 ? 'Add tags…' : ''}
+                  value={docTagInput}
+                  onChange={e => setDocTagInput(e.target.value)}
+                  onBlur={() => addDocTag(docTagInput, setDocTagInput, docTags, setDocTags)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); addDocTag(docTagInput, setDocTagInput, docTags, setDocTags); }
+                    if (e.key === ',') { e.preventDefault(); addDocTag(docTagInput, setDocTagInput, docTags, setDocTags); }
+                    if (e.key === 'Backspace' && !docTagInput && docTags.length) removeDocTag(docTags[docTags.length - 1], setDocTags);
+                  }}
+                />
+              </div>
             </div>
 
             {/* Document Connections (PDF-PDF and PDF-Text) */}
