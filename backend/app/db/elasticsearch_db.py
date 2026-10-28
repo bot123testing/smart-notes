@@ -11,19 +11,16 @@ logging.getLogger("elasticsearch").setLevel(logging.ERROR)
 class ElasticSearchManager:
     client: AsyncElasticsearch = None
 
-    async def connect(self, retries: int = 3, retry_delay: float = 2.0):
+    async def connect(self, retries: int = 1, retry_delay: float = 0.5):
         uri = settings.elasticsearch_url
-        self.client = AsyncElasticsearch(uri)
-        for attempt in range(1, retries + 1):
-            try:
-                info = await self.client.info()
-                print(f"Connected to ElasticSearch: {info['version']['number']}")
-                await self._init_indices()
-                return
-            except Exception:
-                if attempt < retries:
-                    import asyncio
-                    await asyncio.sleep(retry_delay)
+        self.client = AsyncElasticsearch(uri, request_timeout=1.0)
+        try:
+            info = await self.client.info()
+            print(f"Connected to ElasticSearch: {info['version']['number']}")
+            await self._init_indices()
+            return
+        except Exception:
+            pass
 
         print("ElasticSearch unavailable — search will fall back to MongoDB.")
         if self.client:

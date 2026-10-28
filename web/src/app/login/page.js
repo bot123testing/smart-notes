@@ -144,42 +144,6 @@ export default function LoginPage() {
                                 <span className="spinner" />
                             ) : isRegistering ? 'Create Account' : 'Sign In'}
                         </button>
-
-                        {!isRegistering && (
-                            <div style={{ marginTop: 12, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
-                                <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 8, textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>
-                                    Quick Fill Saved Accounts
-                                </p>
-                                <div style={{ display: 'flex', gap: 8, flexDirection: 'column' }}>
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary"
-                                        style={{ fontSize: 12, padding: '7px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                                        onClick={() => {
-                                            setEmail('aryan99bhardwaj@gmail.com');
-                                            setPassword('password123');
-                                            setError('');
-                                        }}
-                                    >
-                                        <span>👤 <strong>aryan99bhardwaj@gmail.com</strong></span>
-                                        <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>(8 Saved Notes)</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary"
-                                        style={{ fontSize: 12, padding: '7px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                                        onClick={() => {
-                                            setEmail('demo@studypath.io');
-                                            setPassword('demopass123');
-                                            setError('');
-                                        }}
-                                    >
-                                        <span>🎓 <strong>demo@studypath.io</strong></span>
-                                        <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>(PDFs & Paths)</span>
-                                    </button>
-                                </div>
-                            </div>
-                        )}
                     </form>
                 </div>
 
