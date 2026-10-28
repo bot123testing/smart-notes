@@ -1106,6 +1106,40 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Document Tags */}
+            <div style={{ padding: '12px 0 14px 0', borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, padding: '0 24px' }}>
+                <span style={s.tagFieldLabel}>TAGS</span>
+                <button
+                  type="button"
+                  onClick={generateDocMagicTags}
+                  disabled={generatingDocTags}
+                  className="btn btn-ghost"
+                  style={{ fontSize: 12, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px' }}
+                >
+                  {generatingDocTags ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <SparkIcon />}
+                  AI Magic Tag
+                </button>
+              </div>
+              <div style={s.tagRow}>
+                {docTags.map(t => (
+                  <TagChip key={t} tag={t} onRemove={tag => removeDocTag(tag, setDocTags)} />
+                ))}
+                <input
+                  style={s.tagInlineInput}
+                  placeholder={docTags.length === 0 ? 'Add tags…' : ''}
+                  value={docTagInput}
+                  onChange={e => setDocTagInput(e.target.value)}
+                  onBlur={() => addDocTag(docTagInput, setDocTagInput, docTags, setDocTags)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); addDocTag(docTagInput, setDocTagInput, docTags, setDocTags); }
+                    if (e.key === ',') { e.preventDefault(); addDocTag(docTagInput, setDocTagInput, docTags, setDocTags); }
+                    if (e.key === 'Backspace' && !docTagInput && docTags.length) removeDocTag(docTags[docTags.length - 1], setDocTags);
+                  }}
+                />
+              </div>
+            </div>
+
             {/* Document View Sub-Tabs */}
             <div style={s.subTabBar}>
               <button
@@ -1266,40 +1300,6 @@ export default function Home() {
                   )}
                 </div>
               )}
-            </div>
-
-            {/* Document Tags */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, padding: '0 24px' }}>
-                <span style={s.tagFieldLabel}>TAGS</span>
-                <button
-                  type="button"
-                  onClick={generateDocMagicTags}
-                  disabled={generatingDocTags}
-                  className="btn btn-ghost"
-                  style={{ fontSize: 12, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px' }}
-                >
-                  {generatingDocTags ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <SparkIcon />}
-                  AI Magic Tag
-                </button>
-              </div>
-              <div style={s.tagRow}>
-                {docTags.map(t => (
-                  <TagChip key={t} tag={t} onRemove={tag => removeDocTag(tag, setDocTags)} />
-                ))}
-                <input
-                  style={s.tagInlineInput}
-                  placeholder={docTags.length === 0 ? 'Add tags…' : ''}
-                  value={docTagInput}
-                  onChange={e => setDocTagInput(e.target.value)}
-                  onBlur={() => addDocTag(docTagInput, setDocTagInput, docTags, setDocTags)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') { e.preventDefault(); addDocTag(docTagInput, setDocTagInput, docTags, setDocTags); }
-                    if (e.key === ',') { e.preventDefault(); addDocTag(docTagInput, setDocTagInput, docTags, setDocTags); }
-                    if (e.key === 'Backspace' && !docTagInput && docTags.length) removeDocTag(docTags[docTags.length - 1], setDocTags);
-                  }}
-                />
-              </div>
             </div>
 
             {/* Document Connections (PDF-PDF and PDF-Text) */}
