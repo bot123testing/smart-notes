@@ -51,3 +51,10 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
     access_token = create_access_token(subject=user.email)
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.get("/me", response_model=User)
+async def get_me(token: str = Depends(oauth2_scheme)):
+    from app.api.deps import get_current_user
+    return await get_current_user(token)
+
