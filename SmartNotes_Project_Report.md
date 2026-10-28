@@ -1,169 +1,166 @@
-# Project Report: Smart Notes+
-## An AI-Powered Polyglot Persistence Note-Taking Application
+# Project Report: Smart Notes+ Study Path Builder
+## An AI-Powered Polyglot Persistence Knowledge Engine & Study Path Roadmap Architecture
 
 ---
 
-## 1. Overall Project Explanation
+## 1. Executive Summary & Core Academic Thesis
 
-### Purpose
-Smart Notes+ is an intelligent, cross-platform note-taking application designed to modernize how individuals capture, conceptualize, and retrieve knowledge. It seamlessly integrates advanced Generative AI capabilities with a robust polyglot persistence backend to provide a powerful, highly-scalable user experience.
-
-### Core Application Features & Academic Pitch
-To address the critical expectations of an academic evaluation panel, Smart Notes+ delivers the following distinct, implemented features that elevate it beyond a standard CRUD application:
-
-1. **AI-Powered "Magic Tagging" (Google Gemini 2.5 Flash):** Rather than relying on manual, error-prone human taxonomy, the application securely delegates payload contextualization to Google's GenAI via RESTful requests, automatically generating intelligent organizational tags in milliseconds.
-2. **Visual Knowledge Graph:** A React-Native interactive web rendering (backed by Neo4j) allows users to literally *see* how disparate pieces of their knowledge connect in a 2D space, demonstrating multi-hop relational mapping beyond simple SQL table joins.
-3. **Lightning-Fast Full-Text Search (Elasticsearch):** Demonstrates high-performance inverted index querying, allowing instantaneous lookup of note content across vast datasets with typo-tolerance, bypassing the severe latency of traditional `LIKE %...%` SQL operations.
-4. **Millisecond Dashboard Data (Redis Caching):** Incorporates an enterprise-layer, ephemeral in-memory cache to temporarily store feed queries, substantially reducing computational overhead on the primary databases during high-traffic reads.
-5. **Cross-Platform React Native Frontend:** Delivers a modern, native-feeling UI/UX cleanly abstracted from the complex backend infrastructure via a strict API Gateway pattern.
-
-### Problem Statement
-Traditional note-taking applications often rely on monolithic, rigid database architectures (like a single relational SQL database). This architecture restricts flexibility when handling unstructured text, complex relationships between ideas, high-velocity read requests, and advanced full-text search capabilities. Furthermore, manual organization via folders often leads to a fragmented knowledge base that becomes impossible to navigate as it scales.
-
-### Objective and Real-World Relevance
-The core objective of Smart Notes+ is to demonstrate how multiple highly-specialized database systems (Polyglot Persistence) can interact synergistically to orchestrate complex data challenges. By employing different databases optimized for specific tasks—document storage, graph relationships, rapid caching, and full-text search—the project mirrors the sophisticated architectures utilized by enterprise-grade technology companies. Its real-world relevance lies in personal knowledge management, academic research, and serving as a blueprint for highly scalable micro-services.
+### Core Defense Thesis
+> **"Each database answers a question the others cannot answer well."**
+> 
+> In a conventional single-database system (e.g. relational SQL or document-only), developers either compromise on multi-hop graph performance, sacrifice full-text search relevance, or overload primary transactional stores with ephemeral caching. 
+> 
+> **Smart Notes+ Study Path Builder** addresses this by implementing a **true Polyglot Persistence architecture** where four specialized database engines fulfill specific, mathematically grounded roles:
+> 1. **MongoDB (Document Model):** Authoritative single source of truth for semi-structured text notes, uploaded PDF metadata, sliding-window chunk provenance, and student mastery state.
+> 2. **Neo4j (Property Graph Model):** Traversal engine for directed acyclic prerequisite trees, multi-hop relationship discovery (`PREREQUISITE_OF`, `MENTIONS`), and cycle-breaking topological sorting.
+> 3. **Elasticsearch (Distributed Inverted Index):** Text-similarity engine utilizing BM25 probabilistic relevance ranking, fuzzy typo-tolerance, and multi-field weighted scoring.
+> 4. **Redis (In-Memory Key-Value & Data Structures):** Sub-millisecond ephemeral cache for precomputed topological paths, token-bucket rate limiters for external AI quotas, and worker lease locks.
 
 ---
 
-## 2. Database Architecture
+## 2. System Architecture & Database Role Separation
 
-This project implements a **Polyglot Persistence** architecture, utilizing four distinct NoSQL database technologies to handle localized workloads with maximum efficiency.
-
-### A. MongoDB (Document Database)
-* **Why it was chosen:** Notes are inherently unstructured or semi-structured documents. MongoDB provides a flexible schema that easily accommodates evolving data models without the need for rigid migrations.
-* **What data it stores:** The absolute source of truth. It stores User profiles, Note contents (title, body text, timestamps), and AI-generated taxonomy tags.
-* **How it is used in the system:** Acts as the primary operational database handling all core CRUD (Create, Read, Update, Delete) transactional operations.
-* **Advantages:** Excellent horizontal scalability and a flexible JSON-like BSON format that maps perfectly to frontend React Native logic and backend Python REST APIs.
-
-### B. Neo4j (Graph Database)
-* **Why it was chosen:** Notes are rarely isolated; they connect to form a web of knowledge. Relational databases struggle with traversing complex many-to-many relationships, whereas Neo4j treats relationships as first-class citizens.
-* **What data it stores:** Nodes representing individual Notes (containing reference metadata) and relationships (edges) such as `LINKED_TO` representing user-defined connections. 
-* **How it is used in the system:** Powers the application's "Graph View" and "Connections" features, allowing users to visually navigate their knowledge graph and query network paths.
-* **Advantages:** Highly optimized for graph traversal operations, enabling relationship discovery and multi-hop queries in milliseconds without the performance hit of SQL `JOIN` constraints.
-
-### C. Elasticsearch (Search Engine)
-* **Why it was chosen:** Searching through thousands of text-heavy notes requires an engine built natively for inverted indices and full-text search.
-* **What data it stores:** Indexed replicas of the notes, focusing exclusively on title, tags, and textual content.
-* **How it is used in the system:** Powers the global search bar API, enabling typo-tolerant, lightning-fast, and highly relevant full-text search results.
-* **Advantages:** Powerful text tokenization, native text-ranking algorithms, and a distributed architectural nature ensure rapid query responses even over huge datasets.
-
-### D. Redis (Key-Value Store)
-* **Why it was chosen:** Certain read operations are executed exceptionally frequently and demand sub-millisecond retrieval latency.
-* **What data it stores:** Ephemeral caching layers for frequently accessed API endpoints (such as fetching recent notes or dashboard feeds).
-* **How it is used in the system:** Acts as a high-speed buffer positioned in front of the primary databases to dramatically reduce read loads and improve application responsiveness.
-* **Advantages:** Operates entirely in-memory for phenomenal speed, simple key-value paradigm, and features robust cache invalidation/expiration mechanisms (TTL).
-
----
-
-## 3. Database Demonstration Guide (For Faculty Presentation)
-
-This section maps out how to present the backend architecture live during a technical evaluation. 
-
-### A. MongoDB Demonstration
-* **Tool:** MongoDB Compass (GUI)
-* **Demonstration Step:** 
-  1. Open MongoDB Compass and establish a connection to `mongodb://localhost:27017`.
-  2. Navigate to the `smartnotes` database, then the `notes` collection.
-  3. Create a note in the mobile application, then click "Refresh" in Compass to demonstrate the document appearing instantly in the operational database.
-
-### B. Neo4j Demonstration
-* **Tool:** Neo4j Browser (via Neo4j Desktop at `http://localhost:7474`)
-* **Demonstration Step:**
-  1. Open Neo4j Browser and connect to the local bolt instance.
-  2. Within the mobile app, deliberately link two notes together.
-  3. Run the visual query `MATCH (n) RETURN n` in Neo4j Browser to visually populate the node graph, showcasing the new directional edge drawn between knowledge points.
-
-### C. Elasticsearch Demonstration
-* **Tool:** Terminal / Command Line Interface (using `curl`)
-* **Demonstration Step:**
-  1. Execute a `curl` query in the terminal to demonstrate raw index configuration.
-  2. Make an edit to a note in the app, then immediately query Elasticsearch to prove the index is kept synchronously up-to-date with MongoDB's truth state.
-
-### D. Redis Demonstration
-* **Tool:** `redis-cli` (Terminal)
-* **Demonstration Step:**
-  1. Open a terminal and run `redis-cli`.
-  2. Perform an API load on the app (e.g., fetching a feed).
-  3. Run the `KEYS *` command in `redis-cli` to demonstrate the targeted cache keys generating in real-time to intercept subsequent load commands.
-
----
-
-## 4. Technical Commands Section
-
-### MongoDB Commands
-```bash
-# Connect to the local MongoDB Shell
-mongosh
-
-# Switch to the project database
-use smartnotes
-
-# Show all collections within the database
-show collections
-
-# Fetch all notes and format output beautifully
-db.notes.find().pretty()
-
-# Insert a sample note manually via shell
-db.notes.insertOne({
-  title: "Presentation Demo",
-  content: "This is a record inserted directly from the command line.",
-  tags: ["demo", "university"]
-})
+```
++----------------------------------------------------------------------------------------------------+
+|                                    NEXT.JS 16 WEB FRONTEND                                         |
+|  [Notes Editor]   [PDF Ingestion]   [Study Path Stepper]   [Gap Analysis]   [Interactive Graph]    |
++-------------------------------------------------+--------------------------------------------------+
+                                                  | RESTful API (Port 8000)
++-------------------------------------------------v--------------------------------------------------+
+|                                    FASTAPI BACKEND GATEWAY                                         |
+|  - JWT & PBKDF2 Auth    - Sliding-Window Chunker    - Token-Bucket Limiter    - Cycle-Safe TopoSort|
+|  - Namespace Guard      - Gemini 2.5 Flash Engine   - Worker Lease Manager    - Hybrid Matcher     |
++-------------------+--------------------+--------------------+--------------------+-----------------+
+                    |                    |                    |                    |
+         (Source of Truth)        (Graph Traversal)    (Full-Text Search)    (Ephemeral Caching)
+                    |                    |                    |                    |
++-------------------v---+ +--------------v----+ +-------------v-----+ +------------v-----+
+|       MONGODB         | |      NEO4J        | |   ELASTICSEARCH   | |     REDIS       |
+|  Port: 27017          | |  Port: 7687/7474  | |  Port: 9200       | |  Port: 6379     |
+|                       | |                   | |                   | |                 |
+| - users               | | (:SP_Concept)     | | Index:            | | Prefix: sp:     |
+| - notes               | | (:SP_Document)    | | studypath_notes   | | - study_path    |
+| - documents           | | (:SP_Note)        | | Index:            | | - concept_graph |
+| - chunks              | | -[:PREREQUISITE]- | | studypath_docs    | | - worker_lease  |
+| - concepts            | | -[:MENTIONS]->    | |                   | | - token_bucket  |
+| - concept_edges       | |                   | | (BM25 Inverted    | |                 |
+| - concept_mentions    | | (Native Index-Free| |  Index & Fuzzy    | | (In-Memory      |
+| - user_known_concepts | |  Adjacency)       | |  Token Matching)  | |  RESP2 Cache)   |
++-----------------------+ +-------------------+ +-------------------+ +-----------------+
 ```
 
-### Neo4j Commands (Cypher)
-```cypher
-// Access via standard bolt interface: bolt://localhost:7687
+### Detailed Breakdown of Database Roles
 
-// Find all Note nodes and their relative relationships
-MATCH (n:Note)-[r]->(m) RETURN n, r, m;
-
-// Fetch and visualize the entire overarching graph
-MATCH (n) RETURN n;
-
-// Delete all nodes and relationships (Hard Reset for a demo run)
-MATCH (n) DETACH DELETE n;
-```
-
-### Elasticsearch Commands 
-```bash
-# Check cluster health and index mapping
-curl -X GET "localhost:9200/_cluster/health?pretty"
-
-# Search the notes index for a specific textual keyword
-curl -X GET "localhost:9200/notes/_search?q=content:university&pretty"
-
-# View the structural mapping/schema for the notes index
-curl -X GET "localhost:9200/notes/_mapping?pretty"
-```
-
-### Redis Commands
-```bash
-# Connect to Redis CLI
-redis-cli
-
-# Verify heartbeat connection 
-PING  # Returns PONG
-
-# View all currently cached operational keys
-KEYS *
-
-# Fetch a specific cached value directly from memory
-GET "cache:recent_notes:user123"
-
-# Clear the entire memory cache
-FLUSHALL
-```
+| Database | Model Type | Local Instance | Authoritative Role in Smart Notes+ |
+| :--- | :--- | :--- | :--- |
+| **MongoDB** | Document Store (BSON) | Native Service (`27017`) | **Authoritative Source of Truth.** Handles all ACID transactional writes. Stores semi-structured PDF metadata, variable sliding-window chunk offsets, raw extracted concept provenance, and user mastery records. |
+| **Neo4j** | Labeled Property Graph | Native Desktop (`7687/7474`) | **Prerequisite & Relationship Traversal.** Implements index-free adjacency for arbitrary-depth queries (`PREREQUISITE_OF*1..10`). Answers: *"What is the ordered learning path to reach concept X?"* |
+| **Elasticsearch** | Inverted Search Index | Native Service (`9200`) | **Text Search & Content Similarity.** Inverted index with BM25 probabilistic relevance ranking and typo-tolerant fuzziness. Answers: *"Which lecture note chunks discuss similar concepts?"* |
+| **Redis** | In-Memory Key-Value | Native Service (`6379`) | **Ephemeral Caching & Throttling.** In-memory key-value store with TTL expirations. Caches precomputed study paths (sub-10ms response), token-bucket rate limits (15 RPM for Gemini), and worker leases. |
 
 ---
 
-## 5. Project Purpose Section
+## 3. Core Engine Implementations
 
-* **Why this project was built:** The project was built to explore the deep orchestration of multiple specialized database engines functioning cooperatively behind a unified RESTful Python API, coupled seamlessly with a modern mobile frontend architecture.
-* **What problem it addresses:** It elegantly resolves architectural bottlenecks found in standard tech stacks by routing API requests to the specific database designed to handle that localized computational problem (e.g., search traffic to Elasticsearch, referential graph queries to Neo4j).
-* **What makes it unique:** The combination of an advanced "Polyglot Persistence" architecture paired with live Generative AI (Google Gemini) processing incoming data. It transforms a standard CRUD mobile application into an intelligent, highly-scalable backend network.
-* **Future scope:** 
-  1. The integration of **Vector Databases** to support spatial similarity searches and advanced semantic retrieval (RAG).
-  2. Implement Conflict-free Replicated Data Types (CRDTs) for offline multi-user collaboration.
-  3. Deploying the application stack via **Docker Kubernetes** to fluidly orchestrate and proxy network traffic between the distinct database micro-containers.
+### A. Document Ingestion & Sliding-Window Chunking Pipeline
+1. **Streaming Upload & Validation:**
+   - Validates `%PDF-` magic bytes in the first 1024 bytes (rejecting fake extensions).
+   - Enforces a 15 MB file size limit and 50-page maximum.
+   - Computes SHA-256 fingerprint for instantaneous upload deduplication.
+2. **Sliding-Window Chunking:**
+   - Word-level sliding window: 400 words with 80 words overlap.
+   - Overlap guarantees technical concepts and definitions spanning page boundaries are never fragmented or missed by AI extraction.
+3. **Structured Concept Extraction:**
+   - Extracts key technical concepts (normalized into lowercase snake_case) and directed prerequisite relationships (`A -> B`).
+   - Rate-regulated via a 15 RPM token bucket throttle matching Google's Gemini baseline limits.
+   - Deterministic offline replay fixture cache keyed by `SHA-256(chunk_text + prompt_version)` for zero-cost test idempotency.
+
+### B. Topological Study Path Engine & Safe Cycle Handling
+1. **Transitive Subgraph Traversal:**
+   - Traverses all prerequisite paths required for target concept using Cypher variable-length paths with an authoritative MongoDB fallback.
+2. **Directed Cycle Detection & Breaking:**
+   - Textbooks and lecture notes often contain circular concept references (e.g., $A \rightarrow B \rightarrow C \rightarrow A$).
+   - A 3-color Depth First Search (DFS) algorithm identifies directed cycles during traversal.
+   - Any back-edge is isolated, logged as a visible user warning banner, and removed using a feedback arc set.
+   - Kahn's algorithm or reverse post-order DFS generates a deterministic, linear sequence of prerequisite study steps.
+3. **Depth Calculation:**
+   - Each step receives a calculated topological depth level:
+     - Level 0: Foundational Concepts
+     - Level 1: Intermediate Concepts
+     - Level 2+: Advanced Concepts
+
+### C. Personalization & Gap Analysis ("What Am I Missing?")
+1. **Student Progress State:**
+   - Stored in MongoDB collection `user_known_concepts` scoped strictly by `owner_id`.
+   - Toggleable via `POST /api/study-paths/known-concepts/{id}` and `DELETE /api/study-paths/known-concepts/{id}`.
+2. **Real-Time Readiness Metric:**
+   $$\text{Readiness Percentage} = \left( \frac{\text{Known Prerequisites}}{\text{Total Prerequisites}} \right) \times 100$$
+3. **Actionable Roadmap:**
+   - Divides prerequisites into **Mastered Prerequisites** and **Missing Prerequisites** (ordered topologically so students know exactly what to learn next).
+
+---
+
+## 4. Multi-Tenant Isolation & Zero Single-Point-of-Failure Resilience
+
+### Strict Namespace Guard
+To guarantee existing university projects are never contaminated:
+- The backend refuses to start unless `APP_NAMESPACE_CONFIRMED == "studypath"` and `DATABASE_NAME != "smartnotes"`.
+- Every collection, index, label, and cache key uses dynamic, non-empty prefixes:
+  - MongoDB: `smartnotes_studypath`
+  - Elasticsearch: `studypath_*`
+  - Redis: `sp:*`
+  - Neo4j: `SP_*`
+- Every query across all four stores filters strictly by `owner_id`. User B receives an HTTP 404 for all User A resources.
+
+### Fault Tolerance & Graceful Degradation Matrix
+
+| Store | Failure Mode | Observed Behavior | Fallback Strategy |
+| :--- | :--- | :--- | :--- |
+| **Elasticsearch** | Service Stopped | Full-text search remains operational | System automatically falls back to MongoDB regex search (`$or: [title, content, tags]`). |
+| **Neo4j** | Service Stopped | Study paths & graphs continue generating | Provenance collections in MongoDB (`concept_edges`, `concept_mentions`) power DFS topological sorting in memory. |
+| **Redis** | Service Stopped | API responses succeed without interruption | Reads bypass cache and query databases directly with transparent retry. |
+| **Gemini API** | Quota Limit / Network Down | Ingestion completes without hanging | Deterministic TF-IDF heuristic extraction parses dominant technical keywords and heuristic edges. |
+
+---
+
+## 5. Formal Verification Matrix (12 Smoke Checks)
+
+All 12 checks were executed against live local databases using `python scripts/smoke_test.py`:
+
+| # | Requirement Tested | Primary Store | Status | Verification Evidence |
+| :---: | :--- | :--- | :---: | :--- |
+| **1** | Namespace Guard | Config / System | **[PASS]** | Isolated DB `smartnotes_studypath` verified; refuses on unconfirmed. |
+| **2** | MongoDB Reachability | MongoDB | **[PASS]** | Native service ping response: `{'ok': 1.0}` on port 27017. |
+| **3** | PDF Streaming Upload | MongoDB / FS | **[PASS]** | Magic bytes verified (`%PDF-`), file streamed, HTTP 200 returned. |
+| **4** | Upload Deduplication | MongoDB | **[PASS]** | Second upload with identical SHA-256 returned HTTP 409 Conflict. |
+| **5** | Chunking & Provenance | MongoDB | **[PASS]** | 400-word sliding-window chunks indexed with SHA-256 content hashes. |
+| **6** | Topological Study Path | Neo4j / Mongo | **[PASS]** | Returned monotonic topological order: `leader_election -> raft -> state_machine`. |
+| **7** | Cycle Detection & Arc Breaking | Algorithm | **[PASS]** | Cyclic edge detected, back-edge broken, and valid linear path returned. |
+| **8** | Gap Analysis ("What Am I Missing?") | Mongo / Logic | **[PASS]** | Toggling known concept updated readiness score from 0.0% to 33.3% in real-time. |
+| **9** | Cross-Source Linking (PDF <-> Note) | Neo4j / ES | **[PASS]** | Text note linked to PDF via shared concept `Raft Consensus`. |
+| **10** | Strict Two-User Isolation | Security / Auth | **[PASS]** | User B received HTTP 404 for User A's document, file, and note. |
+| **11** | Ephemeral Redis Caching | Redis | **[PASS]** | Subsequent study path query served from Redis fast-path in 6.3 ms. |
+| **12** | Cascade Deletion | MongoDB | **[PASS]** | Deleting document removed document, chunks, mentions, and file cleanly. |
+
+---
+
+## 6. Viva Defense Technical Q&A
+
+### Q1: Why didn't you just use MongoDB for everything?
+> **Answer:** MongoDB is outstanding for document storage and horizontal write scaling. However:
+> 1. Multi-hop transitive graph traversals (e.g. finding 5-hop prerequisite chains or topological sorting) in MongoDB require recursive `$graphLookup` pipelines that degrade exponentially with dataset size because MongoDB lacks index-free adjacency. Neo4j executes pointer-hopping in microseconds.
+> 2. Full-text search in MongoDB lacks the BM25 probabilistic relevance ranking, fuzzy typo-tolerance, and term-frequency boosting that Elasticsearch provides natively.
+
+### Q2: How do you prevent data inconsistency across four databases (Dual-Write Problem)?
+> **Answer:** We adopt the **Authoritative Source of Truth Pattern**:
+> - MongoDB is the only transactional authority. Every entity (document, note, concept, edge) is written to MongoDB first.
+> - Elasticsearch, Neo4j, and Redis are derived read models. If an external write to Neo4j fails, the transaction does not corrupt; the document remains saved in MongoDB, and the `rebuild.py` script can wipe and repopulate the read models at any time directly from MongoDB.
+
+### Q3: What happens if two concepts have slightly different spellings in different PDFs?
+> **Answer:** Concepts undergo unified normalization during ingestion: punctuation removal, lowercasing, and whitespace unification to snake_case (`Leader Election` and `leader_election` resolve to the identical concept ID `leader_election`).
+
+---
+
+## 7. Conclusion
+
+Smart Notes+ Study Path Builder demonstrates that **Polyglot Persistence** is not merely a theoretical concept, but an architectural necessity for modern knowledge engineering. By aligning the specific mathematical strengths of Document, Graph, Search, and In-Memory data models, the system delivers an experience that is fast, resilient, and academically rigorous.
