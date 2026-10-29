@@ -48,6 +48,8 @@ class Neo4jManager:
                 except Exception as e:
                     print(f"[Neo4j constraint warning] {e}")
 
+    init_constraints = _init_constraints
+
     async def disconnect(self):
         if self.driver:
             await self.driver.close()

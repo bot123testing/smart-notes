@@ -4,7 +4,6 @@ from app.models.user import UserCreate, UserInDB, User
 from app.core.security import get_password_hash, verify_password, create_access_token
 from app.db.mongodb import db
 from app.db.neo4j_db import neo4j_db
-from app.core.config import settings
 from datetime import timedelta
 
 router = APIRouter()
@@ -29,7 +28,7 @@ async def register(user: UserCreate):
     # Create User node in Neo4j
     driver = neo4j_db.get_driver()
     if driver:
-        query = f"MERGE (u:{settings.NEO4J_LABEL_PREFIX}User {{id: $user_id}})"
+        query = "MERGE (u:User {id: $user_id})"
         try:
             async with driver.session() as session:
                 await session.run(query, user_id=user_obj.id)
@@ -52,3 +51,10 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
     access_token = create_access_token(subject=user.email)
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.get("/me", response_model=User)
+async def get_me(token: str = Depends(oauth2_scheme)):
+    from app.api.deps import get_current_user
+    return await get_current_user(token)
+

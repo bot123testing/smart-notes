@@ -11,18 +11,24 @@ logging.getLogger("elasticsearch").setLevel(logging.ERROR)
 class ElasticSearchManager:
     client: AsyncElasticsearch = None
 
-    async def connect(self):
+    async def connect(self, retries: int = 1, retry_delay: float = 0.5):
         uri = settings.elasticsearch_url
+        self.client = AsyncElasticsearch(uri, request_timeout=1.0)
         try:
-            self.client = AsyncElasticsearch(uri)
             info = await self.client.info()
             print(f"Connected to ElasticSearch: {info['version']['number']}")
             await self._init_indices()
+            return
         except Exception:
-            print("ElasticSearch unavailable — search will fall back to MongoDB.")
-            if self.client:
+            pass
+
+        print("ElasticSearch unavailable — search will fall back to MongoDB.")
+        if self.client:
+            try:
                 await self.client.close()
-            self.client = None  # get_client() returns None → all if-client guards skip cleanly
+            except Exception:
+                pass
+        self.client = None  # get_client() will lazily re-attempt when ES comes online
 
     async def _init_indices(self):
         index_name = f"{settings.ES_INDEX_PREFIX}notes"
@@ -59,12 +65,19 @@ class ElasticSearchManager:
             await self.client.indices.create(index=doc_index, body=doc_mapping)
             print(f"Created ElasticSearch index '{doc_index}' with mappings.")
 
+    create_indices = _init_indices
+
     async def disconnect(self):
         if self.client:
             await self.client.close()
             print("Disconnected from ElasticSearch")
 
     def get_client(self) -> AsyncElasticsearch:
+        if self.client is None:
+            try:
+                self.client = AsyncElasticsearch(settings.elasticsearch_url)
+            except Exception:
+                self.client = None
         return self.client
 
 

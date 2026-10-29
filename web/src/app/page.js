@@ -57,19 +57,20 @@ function TagChip({ tag, onRemove }) {
   );
 }
 
+function formatItemDate(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
 /* ── Unified Knowledge Base List Item (Notes & PDFs together) ────────── */
 function UnifiedListItem({ item, isSelected, onClick }) {
   const isDoc = item.itemType === 'document';
-  const relTime = (iso) => {
-    if (!iso) return '';
-    const diff = Date.now() - new Date(iso).getTime();
-    const m = Math.floor(diff / 60000);
-    if (m < 1) return 'just now';
-    if (m < 60) return `${m}m ago`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `${h}h ago`;
-    return `${Math.floor(h / 24)}d ago`;
-  };
 
   return (
     <div
@@ -95,7 +96,7 @@ function UnifiedListItem({ item, isSelected, onClick }) {
       </div>
 
       <div style={s.noteItemMeta}>
-        <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>{relTime(item.updated_at)}</span>
+        <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>{formatItemDate(item.updated_at)}</span>
         <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
           {item.tags?.slice(0, 2).map((t) => <TagChip key={t} tag={t} />)}
           {item.linked_count > 0 && (
@@ -627,16 +628,27 @@ export default function Home() {
     }))
   ].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
 
-  // Filter items by type & search
+  // Filter items by type & search (uses Elasticsearch API results when available)
   const filteredItems = unifiedItems.filter(item => {
     if (filterKind === 'notes' && item.itemType !== 'note') return false;
     if (filterKind === 'documents' && item.itemType !== 'document') return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      const matchTitle = (item.title || '').toLowerCase().includes(q);
-      const matchContent = (item.content || '').toLowerCase().includes(q);
-      const matchTags = (item.tags || []).some(t => t.toLowerCase().includes(q));
-      return matchTitle || matchContent || matchTags;
+      const matchLocal =
+        (item.title || '').toLowerCase().includes(q) ||
+        (item.content || '').toLowerCase().includes(q) ||
+        (item.tags || []).some(t => t.toLowerCase().includes(q));
+
+      // 1. Instant local match always stays visible (never flickers or disappears)
+      if (matchLocal) return true;
+
+      // 2. Also include any typo-tolerant fuzzy matches from Elasticsearch API
+      if (searchResults !== null && Array.isArray(searchResults)) {
+        const matchedIds = new Set(searchResults.map(r => String(r.id)));
+        if (matchedIds.has(String(item.id))) return true;
+      }
+
+      return false;
     }
     return true;
   });
@@ -995,7 +1007,7 @@ export default function Home() {
                 </div>
               ) : (
                 <div style={{ fontSize: 12, color: 'var(--text-tertiary)', padding: '6px 0' }}>
-                  No connections yet. Mention shared concepts or click "+ Link Note or PDF" above.
+                  No connections yet. Mention shared concepts or click &quot;+ Link Note or PDF&quot; above.
                 </div>
               )}
 
@@ -1059,6 +1071,11 @@ export default function Home() {
                     <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                       📑 {selected.page_count} pages • 💾 {((selected.file_size_bytes || 0) / (1024 * 1024)).toFixed(2)} MB
                     </span>
+                    {docTags.length > 0 && (
+                      <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                        • {docTags.slice(0, 3).map(t => <TagChip key={t} tag={t} />)}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1089,29 +1106,30 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Document Tags (Issue 2) */}
-            <div style={s.tagRow}>
-              <div style={s.tagFieldHeader}>
+            {/* Document Tags */}
+            <div style={{ padding: '12px 0 14px 0', borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, padding: '0 24px' }}>
                 <span style={s.tagFieldLabel}>TAGS</span>
                 <button
-                  style={s.sparkBtn}
+                  type="button"
                   onClick={generateDocMagicTags}
                   disabled={generatingDocTags}
-                  title="Generate tags with AI from document content"
+                  className="btn btn-ghost"
+                  style={{ fontSize: 12, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px' }}
                 >
                   {generatingDocTags ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <SparkIcon />}
-                  Magic Tags
+                  AI Magic Tag
                 </button>
               </div>
-              <div style={s.tagList}>
+              <div style={s.tagRow}>
                 {docTags.map(t => (
                   <TagChip key={t} tag={t} onRemove={tag => removeDocTag(tag, setDocTags)} />
                 ))}
                 <input
-                  style={s.tagInput}
+                  style={s.tagInlineInput}
+                  placeholder={docTags.length === 0 ? 'Add tags…' : ''}
                   value={docTagInput}
                   onChange={e => setDocTagInput(e.target.value)}
-                  placeholder={docTags.length === 0 ? 'Type a tag and press Enter…' : ''}
                   onBlur={() => addDocTag(docTagInput, setDocTagInput, docTags, setDocTags)}
                   onKeyDown={e => {
                     if (e.key === 'Enter') { e.preventDefault(); addDocTag(docTagInput, setDocTagInput, docTags, setDocTags); }
@@ -1213,7 +1231,7 @@ export default function Home() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <span style={{ fontSize: 18 }}>🎯</span>
                         <div>
-                          <strong style={{ color: '#38bdf8', fontSize: 13 }}>Focusing on Concept: "{studyConcept}"</strong>
+                          <strong style={{ color: '#38bdf8', fontSize: 13 }}>Focusing on Concept: &ldquo;{studyConcept}&rdquo;</strong>
                           <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
                             Passages explaining this topic are highlighted in glowing amber below.
                           </div>
@@ -1360,7 +1378,7 @@ export default function Home() {
                 </div>
               ) : (
                 <div style={{ fontSize: 12, color: 'var(--text-tertiary)', padding: '6px 0' }}>
-                  No connections yet. Mention shared concepts or click "+ Link Note or PDF" above.
+                  No connections yet. Mention shared concepts or click &quot;+ Link Note or PDF&quot; above.
                 </div>
               )}
 

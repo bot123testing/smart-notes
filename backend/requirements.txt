@@ -25,9 +25,9 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 uvicorn==0.40.0
 redis>=5.0.0
-neo4j>=5.20.0
-elasticsearch>=8.10.0,<9.0.0
-aiohttp>=3.9.0
-httpx>=0.27.0
+neo4j>=5.15.0
+elasticsearch>=8.11.0
 google-genai>=0.1.0
+httpx>=0.27.0
+aiohttp>=3.9.0
 pypdf>=5.0.0
