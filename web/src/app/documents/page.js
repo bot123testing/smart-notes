@@ -708,7 +708,7 @@ const styles = {
     justifyContent: 'space-between',
   },
   docCardSelected: {
-    borderColor: 'var(--primary)',
+    border: '1px solid var(--primary)',
     boxShadow: '0 0 0 2px var(--primary-glow)',
   },
   docCardHeader: {

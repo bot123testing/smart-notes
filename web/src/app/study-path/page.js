@@ -527,7 +527,7 @@ const styles = {
   },
   chipBtnActive: {
     background: 'var(--primary-glow)',
-    borderColor: 'var(--primary)',
+    border: '1px solid var(--primary)',
     color: 'var(--primary)',
     fontWeight: 600,
   },
@@ -662,7 +662,7 @@ const styles = {
   },
   stepCircleKnown: {
     background: 'rgba(16, 185, 129, 0.2)',
-    borderColor: '#34d399',
+    border: '2px solid #34d399',
     color: '#34d399',
   },
   stepLine: {

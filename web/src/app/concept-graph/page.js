@@ -552,7 +552,7 @@ const styles = {
   },
   statusToggleBtnKnown: {
     background: 'rgba(16, 185, 129, 0.2)',
-    borderColor: '#34d399',
+    border: '1px solid #34d399',
     color: '#34d399',
     fontWeight: 600,
   },
