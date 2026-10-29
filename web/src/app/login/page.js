@@ -45,10 +45,14 @@ export default function LoginPage() {
                 await login(email, password);
             }
         } catch (err) {
-            setError(isRegistering
-                ? 'Registration failed. This email may already be in use.'
-                : 'Invalid email or password. Please try again.'
-            );
+            const msg = !err.response
+                ? 'Unable to connect to backend server (http://localhost:8000). Please ensure it is running.'
+                : (typeof err.response?.data?.detail === 'string'
+                    ? err.response.data.detail
+                    : (isRegistering
+                        ? 'Registration failed. This email may already be in use.'
+                        : 'Invalid email or password. Please try again.'));
+            setError(msg);
         } finally {
             setLoading(false);
         }
