@@ -108,6 +108,27 @@ def create_report():
         run.font.color.rgb = RGBColor(51, 65, 85)
         return p
 
+    def add_figure(img_path, caption, width_inches=6.0):
+        if os.path.exists(img_path):
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.space_before = Pt(8)
+            p.paragraph_format.space_after = Pt(2)
+            p.paragraph_format.keep_with_next = True
+            run = p.add_run()
+            run.add_picture(img_path, width=Inches(width_inches))
+
+            p_cap = doc.add_paragraph()
+            p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p_cap.paragraph_format.space_before = Pt(2)
+            p_cap.paragraph_format.space_after = Pt(8)
+            r_cap = p_cap.add_run(caption)
+            r_cap.font.name = 'Times New Roman'
+            r_cap.font.size = Pt(8.5)
+            r_cap.font.italic = True
+        else:
+            print(f"Warning: image path not found: {img_path}")
+
     def add_code_block(code_text):
         p = doc.add_paragraph()
         p.paragraph_format.space_before = Pt(4)
@@ -357,34 +378,9 @@ def create_report():
     )
     add_p(arch_intro, font_size=10, align=WD_ALIGN_PARAGRAPH.JUSTIFY)
 
-    # Architectural ASCII Diagram Block
-    arch_diagram = (
-        "+------------------------------------------------------------------------------------------------------+\n"
-        "|                                     PRESENTATION LAYER (Next.js 16)                                  |\n"
-        "|  [Unified Knowledge Feed]  [PDF Viewer & Chunks]  [Study Path Stepper]  [Interactive 2D Concept Graph] |\n"
-        "+---------------------------------------------------+--------------------------------------------------+\n"
-        "                                                    | RESTful JSON (HTTP / Port 8000)\n"
-        "+---------------------------------------------------v--------------------------------------------------+\n"
-        "|                                       API GATEWAY LAYER (FastAPI)                                    |\n"
-        "|  - JWT Bearer & PBKDF2 Auth        - 400-Word Sliding-Window Chunker     - Cycle-Safe Topological Sort|\n"
-        "|  - Multi-Tenant Namespace Guard    - Gemini 2.5 Flash Extraction Engine  - Worker Lease Crash Recovery|\n"
-        "+--------------------+----------------------+-----------------------+----------------------------------+\n"
-        "                     |                      |                       |                                  \n"
-        "        (Document Truth)      (Graph Traversal)       (Full-Text Index)       (Ephemeral State)        \n"
-        "                     |                      |                       |                                  \n"
-        "+--------------------v--+ +-----------------v---+ +-----------------v---+ +----------------------------v--+\n"
-        "|       MONGODB         | |       NEO4J         | |   ELASTICSEARCH     | |           REDIS                |\n"
-        "|     Port: 27017       | |   Port: 7687/7474   | |    Port: 9200       | |        Port: 6379              |\n"
-        "| - users               | | Nodes:              | | Index:              | | Key Prefixes:                  |\n"
-        "| - notes               | |  (:SP_Concept)      | |  studypath_notes    | |  sp:path:{u}:{c} (TTL 1800s)   |\n"
-        "| - documents           | |  (:SP_Document)     | |  studypath_documents| |  sp:tb:gemini (Token Bucket)   |\n"
-        "| - chunks (word bounds)| | Edges:              | | - BM25 Scoring      | |  sp:worker:lease (TTL 120s)    |\n"
-        "| - user_known_concepts | |  [:PREREQUISITE_OF] | | - Fuzzy Typo Match  | |  user:{u}:recommendations      |\n"
-        "| - knowledge_metrics   | |  [:MENTIONS]        | | - Trigram N-grams   | |  note:{id} (Entity Cache)      |\n"
-        "+-----------------------+ +---------------------+ +---------------------+ +--------------------------------+\n"
-    )
-    add_code_block(arch_diagram)
-    add_p("Fig. 1: Polyglot Persistence Architecture of the Smart Notes+ Study Path Engine.", font_size=8.5, italic=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=8)
+    # High-resolution architectural diagram
+    fig_arch_path = os.path.join(r"c:\Users\aryan\Desktop\Nosql Project\report_figures", "fig1_system_architecture.png")
+    add_figure(fig_arch_path, "Fig. 1: Polyglot Persistence Architecture of the Smart Notes+ Study Path Engine.", width_inches=6.5)
 
     add_subsec_heading("A. Architectural Tier Descriptions")
     arch_tiers = (
@@ -781,41 +777,18 @@ def create_report():
     )
     add_p(plots_intro, font_size=10, align=WD_ALIGN_PARAGRAPH.JUSTIFY)
 
-    # Plot 1: Graph Traversal Latency ASCII Chart
-    plot1_ascii = (
-        "PLOT 1: RECURSIVE TRAVERSAL LATENCY (ms) VS. PATH DEPTH (1 TO 5 HOPS)\n"
-        "Latency\n"
-        " (ms)\n"
-        "1200 |                                                         [PostgreSQL: 1140 ms]\n"
-        " 800 |                                                              *\n"
-        " 400 |                                            *                 *\n"
-        " 300 |                              [MongoDB: 312 ms]               |\n"
-        " 200 |                                     *                        |\n"
-        " 100 |                        *            |                        |\n"
-        "  50 |          *             |            |                        |\n"
-        "   0 +----------+-------------+------------+------------------------+----->\n"
-        "       1-Hop        2-Hops       3-Hops       4-Hops        5-Hops (Depth)\n"
-        " [o] Neo4j Index-Free Adjacency: 1.8ms -> 2.6ms -> 4.2ms -> 7.1ms -> 11.5ms  (Near-Flat Linear Scaling!)\n"
-        " [*] MongoDB $graphLookup:      4.6ms -> 16.2ms -> 48.6ms -> 128.4ms -> 312.0ms (Exponential Growth)\n"
-    )
-    add_code_block(plot1_ascii)
-    add_p("Fig. 2: Traversal latency comparison demonstrating Neo4j index-free adjacency scalability over MongoDB recursive aggregation.", font_size=8.5, italic=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=8)
+    # Embed high-resolution experimental evaluation charts
+    fig2_path = os.path.join(r"c:\Users\aryan\Desktop\Nosql Project\report_figures", "fig2_graph_traversal_scaling.png")
+    add_figure(fig2_path, "Fig. 2: Recursive traversal latency scaling (ms) vs. path depth (1 to 5 hops) demonstrating Neo4j index-free adjacency scalability over MongoDB recursive aggregation and PostgreSQL recursive joins.", width_inches=5.8)
 
-    # Plot 2: Ebbinghaus Memory Decay Plot
-    plot2_ascii = (
-        "PLOT 2: EBBINGHAUS COGNITIVE MEMORY DECAY D(n) VS. INACTIVE DAYS ELAPSED (lambda = 0.1)\n"
-        "Decay D(n)\n"
-        " 1.00 |                                           =================== (Asymptotic Limit = 1.00)\n"
-        " 0.90 |                             . - ~ ~ ~ *  [Day 23: D(n) = 0.90 - Critically Decayed]\n"
-        " 0.75 |                     . - ~ *\n"
-        " 0.50 |             . - ~ *  [Day 7: D(n) = 0.50 - Half-Forgotten]\n"
-        " 0.25 |      . - ~ *\n"
-        " 0.00 |----+--------+--------+--------+--------+--------+--------+--------+-----> Days\n"
-        "      0    3        7       12       18       23       30       40       50\n"
-        " Formula: D(n) = 1 - exp(-0.1 * delta_t). Notes with high decay are boosted into the active recommendation feed.\n"
-    )
-    add_code_block(plot2_ascii)
-    add_p("Fig. 3: Exponential cognitive memory decay curve governing spaced repetition prioritization in the hybrid recommender.", font_size=8.5, italic=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=8)
+    fig3_path = os.path.join(r"c:\Users\aryan\Desktop\Nosql Project\report_figures", "fig3_ebbinghaus_decay_curve.png")
+    add_figure(fig3_path, "Fig. 3: Exponential cognitive memory decay curve governing spaced repetition prioritization in the hybrid recommender (lambda = 0.1).", width_inches=5.8)
+
+    fig4_path = os.path.join(r"c:\Users\aryan\Desktop\Nosql Project\report_figures", "fig4_cache_latency_percentiles.png")
+    add_figure(fig4_path, "Fig. 4: Study path retrieval response latency percentiles (P50, P95, P99) comparing uncached multi-database queries vs. Redis in-memory cache (98.6% drop in P99 latency).", width_inches=5.8)
+
+    fig5_path = os.path.join(r"c:\Users\aryan\Desktop\Nosql Project\report_figures", "fig5_search_ir_metrics.png")
+    add_figure(fig5_path, "Fig. 5: Information retrieval search relevance benchmark (Precision@5, Recall@10, MRR@10, NDCG@10) across MongoDB Regex, Elasticsearch BM25, and Hybrid Polyglot search.", width_inches=5.8)
 
     # Table V: Schema Specifications Table
     add_p("TABLE V: DATA STORE SCHEMAS, INDEX DEFINITIONS, AND KEY NAMESPACE SPECIFICATIONS", font_size=8.5, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_before=4, space_after=4)
@@ -954,3 +927,4 @@ def create_report():
 
 if __name__ == '__main__':
     create_report()
+
