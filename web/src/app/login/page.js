@@ -36,22 +36,26 @@ export default function LoginPage() {
         setError('');
         setLoading(true);
         try {
+            const cleanEmail = email.trim();
             if (isRegistering) {
-                await register(name, email, password);
+                await register(name.trim(), cleanEmail, password);
                 setIsRegistering(false);
                 setName('');
                 setPassword('');
             } else {
-                await login(email, password);
+                await login(cleanEmail, password);
             }
         } catch (err) {
-            const msg = !err.response
-                ? 'Unable to connect to backend server (http://localhost:8000). Please ensure it is running.'
-                : (typeof err.response?.data?.detail === 'string'
-                    ? err.response.data.detail
-                    : (isRegistering
-                        ? 'Registration failed. This email may already be in use.'
-                        : 'Invalid email or password. Please try again.'));
+            let msg = 'Invalid email or password. Please try again.';
+            if (!err.response) {
+                msg = 'Unable to connect to backend server (http://localhost:8000). Please ensure it is running.';
+            } else if (typeof err.response?.data?.detail === 'string') {
+                msg = err.response.data.detail;
+            } else if (Array.isArray(err.response?.data?.detail)) {
+                msg = err.response.data.detail.map((d) => d.msg || JSON.stringify(d)).join(', ');
+            } else if (isRegistering) {
+                msg = 'Registration failed. This email may already be in use.';
+            }
             setError(msg);
         } finally {
             setLoading(false);
