@@ -49,11 +49,12 @@ export const AuthProvider = ({ children }) => {
 
     const login = async (email, password) => {
         try {
+            const cleanEmail = email.trim();
             const formData = new URLSearchParams();
-            formData.append('username', email);
+            formData.append('username', cleanEmail);
             formData.append('password', password);
 
-            const response = await api.post('/auth/login', formData, {
+            const response = await api.post('/auth/login', formData.toString(), {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
             });
 
