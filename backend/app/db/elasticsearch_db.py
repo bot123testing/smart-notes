@@ -13,8 +13,8 @@ class ElasticSearchManager:
 
     async def connect(self, retries: int = 1, retry_delay: float = 0.5):
         uri = settings.elasticsearch_url
-        self.client = AsyncElasticsearch(uri, request_timeout=1.0)
         try:
+            self.client = AsyncElasticsearch(uri, request_timeout=1.0)
             info = await self.client.info()
             print(f"Connected to ElasticSearch: {info['version']['number']}")
             await self._init_indices()
